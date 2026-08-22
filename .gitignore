@@ -32,3 +32,7 @@ yarn-error.log*
 # Python packaging
 *.egg-info/
 *.egg
+
+# Generated runtime data
+data/
+*.db
