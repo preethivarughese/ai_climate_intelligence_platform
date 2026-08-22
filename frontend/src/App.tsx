@@ -9,6 +9,20 @@ import L from 'leaflet';
 import { i18n } from './i18n/translations';
 import { apiUrl } from './api';
 
+/** FastAPI returns validation errors as a list of {loc, msg}; flatten them into something readable. */
+function describeApiError(body: any, status: number, fallback: string): string {
+  const detail = body?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((d: any) => {
+      const field = Array.isArray(d?.loc) ? d.loc[d.loc.length - 1] : null;
+      return field ? `${field}: ${d.msg}` : d?.msg;
+    }).filter(Boolean);
+    if (messages.length) return messages.join('; ');
+  }
+  return `${fallback} (HTTP ${status})`;
+}
+
 function ChangeMapView({ center }: { center: [number, number] }) {
   const map = useMap();
   useEffect(() => {
@@ -266,7 +280,7 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || `Feedback failed (HTTP ${res.status})`);
-      setFeedbackStatus(`${t.confirmEvent}: ${decision} (#${data.feedback_id})`);
+      setFeedbackStatus(`${decision} recorded (#${data.feedback_id})`);
     } catch (e: any) {
       setFeedbackStatus(e?.message || 'Could not record the decision.');
     }
@@ -317,7 +331,7 @@ export default function App() {
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(typeof data?.detail === 'string' ? data.detail : `Submission rejected (HTTP ${res.status})`);
+      if (!res.ok) throw new Error(describeApiError(data, res.status, 'Submission rejected'));
       setSensorAck(data);
       setSensorForm({ device_id: sensorForm.device_id, pm25: '', pm10: '' });
       loadFusion(selectedRegion);
@@ -1326,9 +1340,45 @@ export default function App() {
                       )}
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
-                      <span className="text-slate-500 block text-[10px]">Thermal Fire Anomaly</span>
-                      <span className="font-bold text-amber-400">+1.4σ Detected</span>
+                      <span className="text-slate-500 block text-[10px]">Active Fire Detections</span>
+                      <span className="font-bold text-amber-400">
+                        {fusionLoading ? 'Retrieving…' : fusion?.active_fires?.display || 'Unavailable'}
+                      </span>
+                      <span className="block text-[9px] text-slate-500 mt-0.5">{fusion?.active_fires?.source}</span>
                     </div>
+                  </div>
+
+                  {/* Fused evidence ledger */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-[10px] font-mono text-slate-400">
+                      <span>Evidence contributing to this verdict</span>
+                      {fusion?.event && (
+                        <span className="text-cyan-400">
+                          {Math.round(fusion.event.composite_confidence * 100)}% · {fusion.event.severity}
+                        </span>
+                      )}
+                    </div>
+                    {(fusion?.event?.evidence_breakdown || []).map((ev: any, idx: number) => (
+                      <div key={idx} className="p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-[10px]">
+                        <div className="flex justify-between items-center gap-2">
+                          <span className="font-bold text-slate-200">{ev.name}</span>
+                          <span className={`font-mono px-1.5 py-0.5 rounded border ${
+                            ev.data_status === 'REAL'
+                              ? 'text-emerald-300 border-emerald-700 bg-emerald-950/50'
+                              : 'text-amber-300 border-amber-700 bg-amber-950/50'
+                          }`}>
+                            {ev.data_status}
+                          </span>
+                        </div>
+                        <div className="text-slate-400 mt-0.5">{ev.description}</div>
+                        <div className="font-mono text-slate-500 mt-0.5">
+                          {ev.status} · +{ev.confidence_contribution} confidence · {ev.raw_source}
+                        </div>
+                      </div>
+                    ))}
+                    {!fusionLoading && !fusion?.event?.evidence_breakdown?.length && (
+                      <div className="text-[10px] text-slate-500">No fused evidence for this area yet.</div>
+                    )}
                   </div>
                 </div>
               </div>

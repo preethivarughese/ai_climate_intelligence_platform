@@ -249,10 +249,17 @@ class FederatedCoordinator:
         last_round = store.last_federated_round()
         return {
             "global_model_version": self.global_model_version,
-            "round_number": self.round_number,
+            "round_number": self.round_number or store.federated_round_count() or None,
             "is_aggregated": self.global_coefficients is not None,
             "feature_names": self.feature_names,
             "nodes": self.get_nodes(),
+            "global_mae": last_round["global_mae"] if last_round else None,
+            "total_samples_aggregated": last_round["total_samples"] if last_round else None,
+            "status": (
+                f"Last round aggregated {last_round['total_samples']} local samples on "
+                f"{last_round['completed_at']} without raw telemetry leaving a node."
+                if last_round else "No aggregation round has run yet in this deployment."
+            ),
             "last_round_completed_at": last_round["completed_at"] if last_round else None,
             "last_round_global_mae": last_round["global_mae"] if last_round else None,
         }
