@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Form, UploadFile, File
-from typing import List, Optional
+from fastapi import APIRouter, Depends, Header, HTTPException, Form, UploadFile, File
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 import logging
 import requests
@@ -8,15 +8,33 @@ import math
 from google import genai
 from google.genai import types
 from ..core.config import settings
+from ..models.schemas import CitizenSensorAck, CitizenSensorReading
+from ..services import store
+from ..services.alerting import configured_channels, dispatch_alert
 from ..services.evidence_fusion import fuse_environmental_signals
+from ..services.federated_service import federated_coordinator
+from ..services.fire_activity import get_active_fires
+from ..services.ml_engine import ml_engine
 from ..services.satellite_no2 import get_tropospheric_no2
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-feedback_db = []
 
 WAQI_TOKEN = settings.WAQI_API_TOKEN
+
+
+def require_admin(authorization: Optional[str] = Header(default=None)) -> str:
+    """Bearer-token gate for endpoints that dispatch interventions or record official decisions."""
+    if not settings.ADMIN_ACCESS_TOKEN:
+        raise HTTPException(
+            503,
+            "Admin actions are disabled: set ADMIN_ACCESS_TOKEN in the backend environment to enable them."
+        )
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if token != settings.ADMIN_ACCESS_TOKEN:
+        raise HTTPException(401, "Invalid or missing admin access token.")
+    return token
 
 def calculate_cpcb_naqi(pm25: float, pm10: float) -> tuple[int, str]:
     if pm25 <= 30: aqi_25 = (50 / 30) * pm25
@@ -118,41 +136,8 @@ def fetch_30day_climatology_and_anomalies(lat: float, lon: float, curr_temp: flo
         "active_anomalies": anomalies
     }
 
-def fetch_live_seismic_activity(lat: float, lon: float, radius_km: float = 500.0):
-    """
-    Queries USGS Real-Time Earthquake Catalog within 500km radius.
-    """
-    recent_events = []
-    try:
-        url = (
-            f"https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&"
-            f"latitude={lat}&longitude={lon}&maxradiuskm={radius_km}&minmagnitude=2.5&limit=3"
-        )
-        res = requests.get(url, timeout=3).json()
-        features = res.get("features", [])
-        for f in features:
-            props = f.get("properties", {})
-            geom = f.get("geometry", {}).get("coordinates", [0, 0, 0])
-            recent_events.append({
-                "place": props.get("place", "Regional Fault Line"),
-                "magnitude": props.get("mag", 0.0),
-                "time": datetime.fromtimestamp(props.get("time", 0) / 1000).strftime("%Y-%m-%d %H:%M UTC"),
-                "depth_km": geom[2] if len(geom) > 2 else 10.0,
-                "status": "Verified USGS Seismic Feed"
-            })
-    except Exception:
-        pass
-
-    if not recent_events:
-        recent_events.append({
-            "place": "Plate Boundary Quiet Zone",
-            "magnitude": 1.2,
-            "time": "Last 24 Hours",
-            "depth_km": 10.0,
-            "status": "No Recent Tremors Above M2.5 within 500km"
-        })
-
-    return recent_events
+def _round_or_none(value: Optional[float]) -> Optional[float]:
+    return round(value, 1) if value is not None else None
 
 def fetch_live_city_data(city_name: str, lat: float, lon: float, state: str = "India"):
     pm25, pm10, no2, so2, co, o3 = None, None, None, None, None, None
@@ -180,41 +165,63 @@ def fetch_live_city_data(city_name: str, lat: float, lon: float, state: str = "I
     except Exception:
         pass
 
-    hourly_forecast = []
-    past_12h_history = []
     try:
-        m_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,uv_index&hourly=pm2_5&past_days=1&timezone=auto"
-        mr = requests.get(m_url, timeout=5).json()
-        curr_m = mr.get("current", {})
+        w_url = (
+            f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+            "&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,uv_index&timezone=auto"
+        )
+        curr_m = requests.get(w_url, timeout=5).json().get("current", {})
         if curr_m:
             temp = curr_m.get("temperature_2m", temp)
             humidity = curr_m.get("relative_humidity_2m", humidity)
             wind_speed = curr_m.get("wind_speed_10m", wind_speed)
             wind_dir = curr_m.get("wind_direction_10m", wind_dir)
             uv_index = curr_m.get("uv_index", 6.5)
-
-        all_pm25 = mr.get("hourly", {}).get("pm2_5", [])
-        base_pm = pm25 if pm25 is not None else (all_pm25[24] if len(all_pm25) > 24 else 40.0)
-        
-        if len(all_pm25) >= 36:
-            past_raw = all_pm25[12:24]
-            future_raw = all_pm25[24:36]
-            scale = (base_pm / (future_raw[0] if future_raw and future_raw[0] > 0 else base_pm))
-            past_12h_history = [round(v * scale, 1) for v in past_raw]
-            hourly_forecast = [round(v * scale, 1) for v in future_raw]
-        else:
-            past_12h_history = [round(base_pm * (0.85 + (i * 0.02)), 1) for i in range(12)]
-            hourly_forecast = [round(base_pm * (1.0 + (i * 0.03)), 1) for i in range(12)]
     except Exception:
-        past_12h_history = [32, 34, 38, 42, 45, 48, 50, 47, 44, 42, 40, 38]
-        hourly_forecast = [38, 42, 50, 60, 68, 62, 55, 48, 44, 40, 38, 36]
+        logger.warning("Live meteorology unavailable for %s; retaining previous values.", city_name)
 
-    if pm25 is None: pm25 = hourly_forecast[0] if hourly_forecast else 36.0
+    # CAMS reanalysis fills any pollutant the ground station did not report.
+    past_12h_history = []
+    try:
+        aq_url = (
+            "https://air-quality-api.open-meteo.com/v1/air-quality"
+            f"?latitude={lat}&longitude={lon}"
+            "&hourly=pm2_5,pm10,nitrogen_dioxide,sulphur_dioxide,carbon_monoxide,ozone"
+            "&past_days=1&forecast_days=1&timezone=auto"
+        )
+        aq_hourly = requests.get(aq_url, timeout=6).json().get("hourly", {})
+        series_pm25 = [v for v in aq_hourly.get("pm2_5", []) if v is not None]
+        past_12h_history = [round(float(v), 1) for v in series_pm25[max(0, len(series_pm25) - 24):][:12]]
+
+        def _latest(key: str) -> Optional[float]:
+            values = [v for v in aq_hourly.get(key, []) if v is not None]
+            return float(values[-1]) if values else None
+
+        pm25 = pm25 if pm25 is not None else _latest("pm2_5")
+        pm10 = pm10 if pm10 is not None else _latest("pm10")
+        no2 = no2 if no2 is not None else _latest("nitrogen_dioxide")
+        so2 = so2 if so2 is not None else _latest("sulphur_dioxide")
+        co = co if co is not None else _latest("carbon_monoxide")
+        o3 = o3 if o3 is not None else _latest("ozone")
+    except Exception:
+        logger.warning("CAMS air-quality series unavailable for %s.", city_name)
+
+    if pm25 is None: pm25 = past_12h_history[-1] if past_12h_history else 36.0
     if pm10 is None: pm10 = round(pm25 * 1.55, 1)
-    if no2 is None: no2 = 22.0
-    if so2 is None: so2 = 8.5
-    if co is None: co = 105.0
-    if o3 is None: o3 = 28.0
+    if not past_12h_history: past_12h_history = [round(pm25, 1)] * 12
+
+    # Forward trajectory comes from the trained forecaster, not a copy of the CAMS series.
+    try:
+        hourly_forecast = [
+            point["predicted_pm25"]
+            for point in ml_engine.forecast_next_hours(pm25, temp, humidity, wind_speed, hours_ahead=12)
+        ]
+        model = ml_engine.status()
+        forecast_source = f"{model['model_version']} trained on {model['training_data_source']}"
+    except Exception:
+        logger.exception("Forecast model unavailable for %s; extrapolating from the current reading.", city_name)
+        hourly_forecast = [round(pm25 * (1.0 + (i * 0.03)), 1) for i in range(12)]
+        forecast_source = "persistence extrapolation (forecast model unavailable)"
 
     if direct_aqi and isinstance(direct_aqi, (int, float)) and direct_aqi > 0:
         aqi_val = int(direct_aqi)
@@ -229,9 +236,6 @@ def fetch_live_city_data(city_name: str, lat: float, lon: float, state: str = "I
 
     # 30-day meteorological baseline deviations
     climate_anomaly = fetch_30day_climatology_and_anomalies(lat, lon, temp, wind_speed, pm25)
-    
-    # Live USGS seismic tremors within 500km
-    seismic_data = fetch_live_seismic_activity(lat, lon)
 
     # Geographic monitoring stations
     stations = [
@@ -250,10 +254,10 @@ def fetch_live_city_data(city_name: str, lat: float, lon: float, state: str = "I
         "current_aqi": aqi_val,
         "current_pm25": round(pm25, 1),
         "current_pm10": round(pm10, 1),
-        "no2": round(no2, 1),
-        "so2": round(so2, 1),
-        "co": round(co, 1),
-        "o3": round(o3, 1),
+        "no2": _round_or_none(no2),
+        "so2": _round_or_none(so2),
+        "co": _round_or_none(co),
+        "o3": _round_or_none(o3),
         "temp": round(temp, 1),
         "humidity": round(humidity, 1),
         "wind_speed": round(wind_speed, 1),
@@ -264,9 +268,10 @@ def fetch_live_city_data(city_name: str, lat: float, lon: float, state: str = "I
         "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S (Local Time)"),
         "past_12h_history": past_12h_history,
         "hourly_forecast": hourly_forecast,
+        "forecast_source": forecast_source,
         "area_stations": stations,
         "climatology": climate_anomaly,
-        "seismic_events": seismic_data
+        "active_fires": get_active_fires(lat, lon)
     }
 
 # Economic Corridors Intelligence
@@ -390,7 +395,9 @@ def _image_error(analysis_status: str, message: str) -> dict:
 @router.post("/images/analyze")
 async def analyze_image_with_gemini(
     file: Optional[UploadFile] = File(None),
-    preset_scenario: Optional[str] = Form(None)
+    preset_scenario: Optional[str] = Form(None),
+    lat: Optional[float] = Form(None),
+    lon: Optional[float] = Form(None)
 ):
     if file:
         content_type = (file.content_type or "").lower()
@@ -478,6 +485,21 @@ Return ONLY valid JSON matching this schema:
 
         parsed.setdefault("visual_evidence", [])
         parsed["analysis_status"] = "OK"
+        parsed["model_used"] = settings.GEMINI_MODEL
+
+        if lat is not None and lon is not None:
+            # Geotagged verdicts become evidence the fusion engine can pick up for that area.
+            store.save_image_report({
+                "lat": lat,
+                "lon": lon,
+                "is_relevant": bool(parsed.get("is_relevant")),
+                "event_type": parsed.get("event_type", "unspecified"),
+                "severity": parsed.get("severity", "none"),
+                "confidence": float(parsed.get("confidence", 0.0)),
+                "description": parsed.get("plain_description", ""),
+            })
+            parsed["stored_as_evidence"] = True
+
         return parsed
 
     presets = {
@@ -508,17 +530,13 @@ Return ONLY valid JSON matching this schema:
     }
     return presets.get(preset_scenario, presets["unrelated_garbage"])
 
-@router.get("/fusion")
-def get_fused_hotspot(
-    city: str = "Delhi NCR",
-    lat: float = 28.6139,
-    lon: float = 77.2090,
-    state: str = "India"
-):
-    """Multi-source evidence fusion for a coordinate, including live Sentinel-5P NO2."""
+def _build_fusion(city: str, lat: float, lon: float, state: str) -> Dict[str, Any]:
+    """Fuse ground telemetry, citizen photo + sensor evidence, satellite NO2, fires and meteorology."""
     city_data = fetch_live_city_data(city, lat, lon, state)
     baseline_pm25 = city_data["climatology"]["baseline_30d"]["mean_pm25_ugm3"] or 1.0
     no2 = get_tropospheric_no2(lat, lon)
+    sensor_readings = store.recent_sensor_readings(lat, lon, radius_km=25.0, hours=24)
+    image_report = store.latest_image_report(lat, lon, radius_km=25.0, hours=6)
 
     event = fuse_environmental_signals(
         region_id=city_data["id"],
@@ -527,17 +545,113 @@ def get_fused_hotspot(
         lon=lon,
         current_pm25=city_data["current_pm25"],
         baseline_pm25=baseline_pm25,
-        image_result=None,
+        image_result=image_report,
         satellite_no2_available=no2["satellite_no2_available"],
         satellite_no2_zscore=no2["satellite_no2_zscore"],
         wind_speed_kmh=city_data["wind_speed"],
         wind_direction_deg=city_data["wind_dir"],
         weather_inversion=city_data["climatology"]["deviations_sigma"]["wind_z_score"] <= -1.8,
         satellite_source=no2["source"],
-        satellite_is_direct=no2["is_direct_satellite_retrieval"]
+        satellite_is_direct=no2["is_direct_satellite_retrieval"],
+        citizen_sensor_readings=sensor_readings,
+        fire_activity=city_data["active_fires"]
     )
 
-    return {"event": event, "satellite_no2": no2}
+    return {
+        "event": event,
+        "satellite_no2": no2,
+        "active_fires": city_data["active_fires"],
+        "citizen_sensor_readings": sensor_readings,
+        "citizen_image_report": image_report,
+        "current_aqi": city_data["current_aqi"],
+        "current_pm25": city_data["current_pm25"]
+    }
+
+@router.get("/fusion")
+def get_fused_hotspot(
+    city: str = "Delhi NCR",
+    lat: float = 28.6139,
+    lon: float = 77.2090,
+    state: str = "India"
+):
+    return _build_fusion(city, lat, lon, state)
+
+@router.post("/citizen/sensor", response_model=CitizenSensorAck)
+def submit_sensor_reading(reading: CitizenSensorReading):
+    """Intake for community-run low-cost PM sensors, persisted as hyper-local evidence."""
+    stored = store.save_sensor_reading(reading.model_dump())
+    aqi, category = calculate_cpcb_naqi(reading.pm25, reading.pm10 or reading.pm25 * 1.55)
+
+    deviation = None
+    try:
+        official = fetch_live_city_data("Reference", reading.lat, reading.lon)["current_pm25"]
+        if official:
+            deviation = round(((reading.pm25 - official) / official) * 100, 1)
+    except Exception:
+        logger.warning("Could not compare citizen reading %s against official telemetry.", stored["id"])
+
+    summary = f"Recorded {reading.pm25} µg/m³ PM2.5 — NAQI {aqi} ({category})."
+    if deviation is not None:
+        direction = "above" if deviation >= 0 else "below"
+        summary += f" That is {abs(deviation)}% {direction} the nearest official reading."
+
+    return CitizenSensorAck(
+        id=stored["id"],
+        recorded_at=stored["recorded_at"],
+        device_id=reading.device_id,
+        pm25=reading.pm25,
+        computed_aqi=aqi,
+        aqi_category=category,
+        deviation_vs_official_pct=deviation,
+        plain_summary=summary
+    )
+
+@router.get("/citizen/sensor")
+def list_sensor_readings(
+    lat: float = 28.6139,
+    lon: float = 77.2090,
+    radius_km: float = 25.0,
+    hours: int = 24
+):
+    readings = store.recent_sensor_readings(lat, lon, radius_km=radius_km, hours=hours)
+    return {
+        "count": len(readings),
+        "radius_km": radius_km,
+        "window_hours": hours,
+        "readings": readings
+    }
+
+@router.get("/forecast")
+def get_forecast(
+    city: str = "Delhi NCR",
+    lat: float = 28.6139,
+    lon: float = 77.2090,
+    state: str = "India",
+    hours: int = 12
+):
+    """PM2.5 trajectory from the RandomForest forecaster trained on real CAMS/ERA5 history."""
+    hours = max(1, min(hours, 48))
+    city_data = fetch_live_city_data(city, lat, lon, state)
+    points = ml_engine.forecast_next_hours(
+        city_data["current_pm25"],
+        city_data["temp"],
+        city_data["humidity"],
+        city_data["wind_speed"],
+        hours_ahead=hours
+    )
+    peak = max(points, key=lambda p: p["predicted_pm25"])
+    return {
+        "city": city_data["name"],
+        "current_pm25": city_data["current_pm25"],
+        "forecast": points,
+        "peak": peak,
+        "spike_expected": peak["predicted_pm25"] > max(city_data["current_pm25"] * 1.25, 90),
+        "model": ml_engine.status()
+    }
+
+@router.get("/model/status")
+def model_status():
+    return ml_engine.status()
 
 @router.post("/authority/recommendations")
 def generate_recommendation(payload: dict):
@@ -545,19 +659,19 @@ def generate_recommendation(payload: dict):
     loc = payload.get("location_name", "District")
     pm25 = payload.get("current_pm25", 50)
     event_type = payload.get("likely_event_type", "smoke")
-    
+
     if settings.GEMINI_API_KEY:
         try:
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
             prompt = f"Act as Senior Environmental Officer. Generate official response in language '{lang}' for {loc}. Telemetry: PM2.5 is {pm25} ug/m3, Event: {event_type}. Return JSON: {{'summary': str, 'recommended_actions': [str, str, str], 'urgency': 'high'}}"
             res = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=settings.GEMINI_MODEL,
                 contents=[prompt],
                 config=types.GenerateContentConfig(response_mime_type="application/json")
             )
             return json.loads(res.text)
         except Exception:
-            pass
+            logger.warning("Gemini recommendation generation failed; using the standing SOP template.")
 
     if lang == "hi":
         return {
@@ -586,23 +700,77 @@ def generate_recommendation(payload: dict):
             "recommended_actions": [
                 "Deploy municipal patrol to verify and halt local emission sources.",
                 "Activate anti-smog mist cannons in downwind corridors.",
-                "Issue localized public health advisory restricting outdoor sports."
+                "Issue localized public health advisory restricting outdoor sources."
             ]
         }
 
-@router.post("/authority/feedback")
-def submit_feedback(data: dict):
-    feedback_db.append(data)
-    return {"status": "SUCCESS", "message": "Decision logged into continuous learning database."}
+@router.get("/authority/session")
+def verify_admin_session(_: str = Depends(require_admin)):
+    """Lets the console validate an operator token before showing the dispatch controls."""
+    return {"authenticated": True, "configured_channels": configured_channels()}
 
-@router.get("/federated/sync")
-def federated_sync():
+@router.post("/authority/dispatch")
+def dispatch_authority_alert(payload: dict, _: str = Depends(require_admin)):
+    """Re-fuse the area, then actually deliver the intervention notice on the configured channels."""
+    city = payload.get("city", "Delhi NCR")
+    lat = float(payload.get("lat", 28.6139))
+    lon = float(payload.get("lon", 77.2090))
+    fusion = _build_fusion(city, lat, lon, payload.get("state", "India"))
+    event = fusion["event"].model_dump()
+
+    recommendation = generate_recommendation({
+        "language": payload.get("language", "en"),
+        "location_name": event["location_name"],
+        "current_pm25": fusion["current_pm25"],
+        "likely_event_type": event["likely_event_type"]
+    })
+
+    result = dispatch_alert(
+        event=event,
+        aqi=fusion["current_aqi"],
+        pm25=fusion["current_pm25"],
+        recommendation=recommendation,
+        force=bool(payload.get("force", False))
+    )
+    result["recommendation"] = recommendation
+    return result
+
+@router.get("/authority/alerts")
+def list_alerts(limit: int = 50):
     return {
-        "status": "SYNCHRONIZED",
-        "global_model_version": "v1.4.3-FedAvg-Global",
-        "nodes": [
-            {"name": "Delhi NCR Node", "samples": 5120, "mae": 13.8, "status": "Online (Privacy Preserved)"},
-            {"name": "Karnataka (Bengaluru) Node", "samples": 2450, "mae": 6.8, "status": "Online (Privacy Preserved)"},
-            {"name": "Punjab Agro Node", "samples": 3890, "mae": 17.5, "status": "Online (Privacy Preserved)"}
-        ]
+        "configured_channels": configured_channels(),
+        "cooldown_minutes": settings.ALERT_COOLDOWN_MINUTES,
+        "trigger": {
+            "min_composite_confidence": settings.ALERT_MIN_CONFIDENCE,
+            "min_pm25_ugm3": settings.ALERT_MIN_PM25
+        },
+        "alerts": store.list_alerts(limit)
     }
+
+@router.post("/authority/feedback")
+def submit_feedback(data: dict, _: str = Depends(require_admin)):
+    stored = store.save_feedback(data)
+    return {
+        "status": "SUCCESS",
+        "feedback_id": stored["id"],
+        "recorded_at": stored["recorded_at"],
+        "message": "Decision persisted; it will be replayed into the next federated training round."
+    }
+
+@router.get("/authority/feedback")
+def get_feedback(limit: int = 100, _: str = Depends(require_admin)):
+    return {"feedback": store.list_feedback(limit)}
+
+@router.get("/federated/status")
+def federated_status():
+    """Current state of the federation without triggering a new training round."""
+    return federated_coordinator.status()
+
+@router.post("/federated/sync")
+def federated_sync():
+    """Run a FedAvg round: every node trains locally and shares only model weights."""
+    return federated_coordinator.run_federated_aggregation()
+
+@router.get("/federated/rounds")
+def federated_rounds(limit: int = 20):
+    return {"rounds": store.list_federated_rounds(limit)}

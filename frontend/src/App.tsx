@@ -2,12 +2,26 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShieldAlert, MapPin, TrendingUp, Layers, 
   FileCheck, Cpu, Sun, Moon, Globe,
-  Wind, CheckCircle2, AlertTriangle, RefreshCw, Upload, Search, CloudRain, ShieldCheck, Lock, Map as MapIcon, KeyRound, X, ChevronRight, Activity, Eye, AlertOctagon, History, Compass, Radio
+  Wind, CheckCircle2, AlertTriangle, RefreshCw, Upload, Search, CloudRain, ShieldCheck, Lock, Map as MapIcon, KeyRound, X, ChevronRight, Activity, Eye, AlertOctagon, History, Compass, Flame, Send
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { i18n } from './i18n/translations';
 import { apiUrl } from './api';
+
+/** FastAPI returns validation errors as a list of {loc, msg}; flatten them into something readable. */
+function describeApiError(body: any, status: number, fallback: string): string {
+  const detail = body?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((d: any) => {
+      const field = Array.isArray(d?.loc) ? d.loc[d.loc.length - 1] : null;
+      return field ? `${field}: ${d.msg}` : d?.msg;
+    }).filter(Boolean);
+    if (messages.length) return messages.join('; ');
+  }
+  return `${fallback} (HTTP ${status})`;
+}
 
 function ChangeMapView({ center }: { center: [number, number] }) {
   const map = useMap();
@@ -83,6 +97,13 @@ export default function App() {
   const [fedLoading, setFedLoading] = useState<boolean>(false);
   const [fusion, setFusion] = useState<any>(null);
   const [fusionLoading, setFusionLoading] = useState<boolean>(false);
+  const [adminToken, setAdminToken] = useState<string>('');
+  const [alertChannels, setAlertChannels] = useState<string[]>([]);
+  const [dispatchResult, setDispatchResult] = useState<any>(null);
+  const [dispatchLoading, setDispatchLoading] = useState<boolean>(false);
+  const [sensorForm, setSensorForm] = useState({ device_id: '', pm25: '', pm10: '' });
+  const [sensorAck, setSensorAck] = useState<any>(null);
+  const [sensorError, setSensorError] = useState<string>('');
 
   const t = i18n[lang];
   const isDark = theme === 'dark';
@@ -162,17 +183,24 @@ export default function App() {
     handleSelectSpotFromMap(customSpot);
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (authPassword === 'admin' || authPassword === 'cpcb2026') {
+    setAuthError('');
+    try {
+      const res = await fetch(apiUrl('/api/authority/session'), {
+        headers: { Authorization: `Bearer ${authPassword}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || `Sign-in failed (HTTP ${res.status})`);
+      setAdminToken(authPassword);
       setIsAdmin(true);
+      setAlertChannels(data.configured_channels || []);
       setShowLoginModal(false);
       setAuthPassword('');
-      setAuthError('');
       setActiveTab('authority');
       fetchAuthorityOrders();
-    } else {
-      setAuthError('Invalid Officer Password. Use "admin" or "cpcb2026".');
+    } catch (err: any) {
+      setAuthError(err?.message || 'Sign-in failed.');
     }
   };
 
@@ -191,6 +219,10 @@ export default function App() {
     try {
       const form = new FormData();
       form.append('file', file);
+      if (selectedRegion) {
+        form.append('lat', String(selectedRegion.lat));
+        form.append('lon', String(selectedRegion.lon));
+      }
       const res = await fetch(apiUrl('/api/images/analyze'), { method: 'POST', body: form });
       const data = await res.json();
       if (!res.ok) {
@@ -238,29 +270,96 @@ export default function App() {
     try {
       const res = await fetch(apiUrl('/api/authority/feedback'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
         body: JSON.stringify({
+          event_id: fusion?.event?.event_id || selectedRegion?.id,
           region_name: selectedRegion?.name,
-          decision: decision,
-          timestamp: new Date().toISOString()
+          decision,
+          notes: `Submitted from the console for ${selectedRegion?.name}`
         })
       });
       const data = await res.json();
-      setFeedbackStatus(`${t.confirmEvent}: ${decision}`);
-    } catch (e) {
-      console.error(e);
+      if (!res.ok) throw new Error(data?.detail || `Feedback failed (HTTP ${res.status})`);
+      setFeedbackStatus(`${decision} recorded (#${data.feedback_id})`);
+    } catch (e: any) {
+      setFeedbackStatus(e?.message || 'Could not record the decision.');
+    }
+  };
+
+  const dispatchIntervention = async () => {
+    if (!selectedRegion) return;
+    setDispatchLoading(true);
+    setDispatchResult(null);
+    try {
+      const res = await fetch(apiUrl('/api/authority/dispatch'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({
+          city: selectedRegion.name,
+          lat: selectedRegion.lat,
+          lon: selectedRegion.lon,
+          state: selectedRegion.state,
+          language: lang,
+          force: true
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || `Dispatch failed (HTTP ${res.status})`);
+      setDispatchResult(data);
+    } catch (e: any) {
+      setDispatchResult({ delivery_status: 'REQUEST_FAILED', reason: e?.message || 'Dispatch request failed.' });
+    } finally {
+      setDispatchLoading(false);
+    }
+  };
+
+  const submitSensorReading = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRegion) return;
+    setSensorError('');
+    setSensorAck(null);
+    try {
+      const res = await fetch(apiUrl('/api/citizen/sensor'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: sensorForm.device_id || 'community-sensor',
+          lat: selectedRegion.lat,
+          lon: selectedRegion.lon,
+          pm25: Number(sensorForm.pm25),
+          pm10: sensorForm.pm10 ? Number(sensorForm.pm10) : null
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(describeApiError(data, res.status, 'Submission rejected'));
+      setSensorAck(data);
+      setSensorForm({ device_id: sensorForm.device_id, pm25: '', pm10: '' });
+      loadFusion(selectedRegion);
+    } catch (err: any) {
+      setSensorError(err?.message || 'Could not submit the reading.');
     }
   };
 
   const triggerFedSync = async () => {
     setFedLoading(true);
     try {
-      const res = await fetch(apiUrl('/api/federated/sync'));
-      setFedSyncData(await res.json());
+      const res = await fetch(apiUrl('/api/federated/sync'), { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || `Aggregation failed (HTTP ${res.status})`);
+      setFedSyncData(data);
     } catch (e) {
       console.error(e);
     } finally {
       setFedLoading(false);
+    }
+  };
+
+  const loadFedStatus = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/federated/status'));
+      setFedSyncData(await res.json());
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -282,6 +381,9 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'evidence' && selectedRegion) {
       loadFusion(selectedRegion);
+    }
+    if (activeTab === 'federated' && !fedSyncData) {
+      loadFedStatus();
     }
   }, [activeTab, selectedRegion?.lat, selectedRegion?.lon]);
 
@@ -356,7 +458,7 @@ export default function App() {
           }`}>
             <div className="flex justify-between items-start mb-4">
               <div>
-                <span className="text-[10px] font-mono text-cyan-400 uppercase font-bold tracking-wider">Meteorological Telemetry & Multi-Hazard Assessment</span>
+                <span className="text-[10px] font-mono text-cyan-400 uppercase font-bold tracking-wider">{t.metTelemetryTitle}</span>
                 <h3 className="text-xl font-bold flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-cyan-400" /> {telemetryModalData.name} ({telemetryModalData.state})
                 </h3>
@@ -388,25 +490,25 @@ export default function App() {
                 <span className="text-xs font-bold flex items-center gap-1.5 text-cyan-400">
                   <Compass className="w-4 h-4" /> 30-Day Climate Normal vs. Live Deviation (Z-Scores)
                 </span>
-                <span className="text-[10px] font-mono text-slate-400">ERA5 / IMD Reanalysis</span>
+                <span className="text-[10px] font-mono text-slate-400">{t.era5Reanalysis}</span>
               </div>
               <div className="grid grid-cols-3 gap-2 text-xs font-mono">
                 <div className="p-2.5 rounded-xl bg-[#080D1D] border border-slate-800">
-                  <span className="text-slate-400 block text-[10px]">Wind Velocity (30d Normal)</span>
+                  <span className="text-slate-400 block text-[10px]">{t.windVelocityNormal}</span>
                   <div className="font-bold text-white mt-0.5">{telemetryModalData.climatology?.baseline_30d?.mean_wind_kmh} km/h</div>
                   <span className={`text-[10px] font-bold ${telemetryModalData.climatology?.deviations_sigma?.wind_z_score >= 2 ? 'text-rose-400' : 'text-cyan-400'}`}>
                     {telemetryModalData.climatology?.deviations_sigma?.wind_z_score >= 0 ? '+' : ''}{telemetryModalData.climatology?.deviations_sigma?.wind_z_score}σ (Std Dev)
                   </span>
                 </div>
                 <div className="p-2.5 rounded-xl bg-[#080D1D] border border-slate-800">
-                  <span className="text-slate-400 block text-[10px]">Temperature (30d Normal)</span>
+                  <span className="text-slate-400 block text-[10px]">{t.temperatureNormal}</span>
                   <div className="font-bold text-white mt-0.5">{telemetryModalData.climatology?.baseline_30d?.mean_temp_c} °C</div>
                   <span className="text-[10px] text-cyan-400">
                     {telemetryModalData.climatology?.deviations_sigma?.temp_z_score >= 0 ? '+' : ''}{telemetryModalData.climatology?.deviations_sigma?.temp_z_score}σ
                   </span>
                 </div>
                 <div className="p-2.5 rounded-xl bg-[#080D1D] border border-slate-800">
-                  <span className="text-slate-400 block text-[10px]">PM2.5 Saturation</span>
+                  <span className="text-slate-400 block text-[10px]">{t.pm25Saturation}</span>
                   <div className="font-bold text-white mt-0.5">{telemetryModalData.climatology?.baseline_30d?.mean_pm25_ugm3} µg/m³</div>
                   <span className={`text-[10px] font-bold ${telemetryModalData.climatology?.deviations_sigma?.pm25_z_score >= 2 ? 'text-rose-400' : 'text-emerald-400'}`}>
                     {telemetryModalData.climatology?.deviations_sigma?.pm25_z_score >= 0 ? '+' : ''}{telemetryModalData.climatology?.deviations_sigma?.pm25_z_score}σ Spike
@@ -415,26 +517,20 @@ export default function App() {
               </div>
             </div>
 
-            {/* Seismic Activity Proximity Feed (USGS) */}
+            {/* Active fire detections (NASA FIRMS VIIRS) */}
             <div className={`p-4 rounded-2xl border mb-4 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-bold flex items-center gap-1.5 text-cyan-400">
-                  <Radio className="w-4 h-4" /> Live Seismic Proximity Feed (within 500km)
+                <span className="text-xs font-bold flex items-center gap-1.5 text-orange-400">
+                  <Flame className="w-4 h-4" /> {t.activeFireDetectionsRadius}
                 </span>
-                <span className="text-[10px] font-mono text-emerald-400">USGS Live Network</span>
+                <span className="text-[10px] font-mono text-slate-400">{telemetryModalData.active_fires?.source}</span>
               </div>
-              <div className="space-y-1.5 text-xs">
-                {telemetryModalData.seismic_events?.map((quake: any, idx: number) => (
-                  <div key={idx} className="p-2 rounded-xl bg-[#080D1D] border border-slate-800 flex justify-between items-center">
-                    <div>
-                      <div className="font-bold text-slate-200">{quake.place}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">Depth: {quake.depth_km}km • {quake.time}</div>
-                    </div>
-                    <span className={`font-mono font-bold px-2 py-0.5 rounded text-xs ${quake.magnitude >= 4.0 ? 'bg-rose-950 text-rose-300 border border-rose-600' : 'bg-slate-800 text-slate-300'}`}>
-                      M{quake.magnitude}
-                    </span>
-                  </div>
-                ))}
+              <div className="p-2 rounded-xl bg-[#080D1D] border border-slate-800 text-xs">
+                <div className="font-bold text-slate-200">{telemetryModalData.active_fires?.display}</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">{telemetryModalData.active_fires?.status_detail}</div>
+                {telemetryModalData.active_fires?.max_frp_mw != null && (
+                  <div className="text-[10px] font-mono text-orange-300 mt-0.5">Peak radiative power: {telemetryModalData.active_fires.max_frp_mw} MW</div>
+                )}
               </div>
             </div>
 
@@ -445,7 +541,7 @@ export default function App() {
                   <History className="w-3.5 h-3.5 text-cyan-400" /> 24-Hour Particulate Trajectory (Observed vs Forecast)
                 </span>
                 <span className="text-[10px] font-mono bg-cyan-950 text-cyan-300 border border-cyan-500/40 px-2 py-0.5 rounded">
-                  v1.4.2-RF-Explainable
+                  {telemetryModalData.forecast_source || 'forecast model'}
                 </span>
               </div>
               {renderCombinedTimelineChart(telemetryModalData.past_12h_history || [35, 38, 42, 45], telemetryModalData.hourly_forecast || [48, 55, 60, 52])}
@@ -454,7 +550,7 @@ export default function App() {
             {/* Downwind Vector */}
             <div className={`p-3.5 rounded-xl border text-xs ${isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <div className="flex items-center gap-1.5 font-bold text-cyan-400 mb-1">
-                <Wind className="w-3.5 h-3.5" /> Downwind Trajectory Impact Zones:
+                <Wind className="w-3.5 h-3.5" /> {t.downwindZonesLabel}
               </div>
               <div className="flex flex-wrap gap-1.5 mt-1.5">
                 {getDownwindZones(telemetryModalData.wind_dir, telemetryModalData.name).map((z, idx) => (
@@ -477,23 +573,23 @@ export default function App() {
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-6 h-6 text-rose-500" />
-                <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>CPCB Officer / Admin Login</h3>
+                <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{t.officerLoginTitle}</h3>
               </div>
               <button onClick={() => setShowLoginModal(false)} className="text-slate-400 hover:text-slate-200">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-xs text-slate-400 mb-4">Authenticate to access intervention dispatch orders and model training feedback loops.</p>
+            <p className="text-xs text-slate-400 mb-4">{t.officerLoginDesc}</p>
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div>
-                <label className={`text-xs font-semibold block mb-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Passcode:</label>
+                <label className={`text-xs font-semibold block mb-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t.passcode}</label>
                 <div className="relative">
                   <KeyRound className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
                   <input 
                     type="password"
                     value={authPassword}
                     onChange={(e) => setAuthPassword(e.target.value)}
-                    placeholder="Enter 'admin' or 'cpcb2026'"
+                    placeholder="Operator access token (ADMIN_ACCESS_TOKEN)"
                     className={`w-full pl-9 pr-4 py-2.5 rounded-xl text-xs border focus:outline-none focus:border-cyan-400 ${
                       isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'
                     }`}
@@ -502,7 +598,7 @@ export default function App() {
                 {authError && <p className="text-xs text-rose-400 mt-1 font-medium">{authError}</p>}
               </div>
               <button type="submit" className="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs rounded-xl transition">
-                Authenticate & Unlock Dispatch Orders
+                {t.authenticateUnlock}
               </button>
             </form>
           </div>
@@ -678,7 +774,7 @@ export default function App() {
                       <span className="text-6xl md:text-7xl font-black tracking-tight" style={{ color: getAqiColor(selectedRegion.current_aqi) }}>
                         {selectedRegion.current_aqi}
                       </span>
-                      <span className="text-xs font-bold text-slate-400 ml-2">AQI (IN)</span>
+                      <span className="text-xs font-bold text-slate-400 ml-2">{t.aqiIn}</span>
                     </div>
 
                     <div>
@@ -725,7 +821,7 @@ export default function App() {
                     <CloudRain className="w-10 h-10 text-cyan-400" />
                     <div>
                       <div className="text-3xl font-black">{selectedRegion.temp} °C</div>
-                      <div className="text-xs text-slate-400">Live Weather Telemetry</div>
+                      <div className="text-xs text-slate-400">{t.liveWeatherTelemetry}</div>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2 pt-4 border-t border-slate-800 text-xs">
@@ -1068,6 +1164,51 @@ export default function App() {
                   <span className="text-xs text-slate-400 mt-1">{t.uploadHelper}</span>
                 </div>
 
+                {/* Citizen low-cost sensor intake */}
+                <form onSubmit={submitSensorReading} className={`p-4 rounded-2xl border space-y-3 ${isDark ? 'bg-[#080D1D] border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <h3 className="text-sm font-bold text-slate-300 flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-cyan-400" /> {t.submitSensorTitle}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Readings are geotagged to {selectedRegion.name} and folded into the fusion engine and the next local training round.
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      value={sensorForm.device_id}
+                      onChange={(e) => setSensorForm({ ...sensorForm, device_id: e.target.value })}
+                      placeholder="Device ID"
+                      className={`px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-cyan-400 ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'}`}
+                    />
+                    <input
+                      value={sensorForm.pm25}
+                      onChange={(e) => setSensorForm({ ...sensorForm, pm25: e.target.value })}
+                      type="number"
+                      step="0.1"
+                      required
+                      placeholder="PM2.5 µg/m³"
+                      className={`px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-cyan-400 ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'}`}
+                    />
+                    <input
+                      value={sensorForm.pm10}
+                      onChange={(e) => setSensorForm({ ...sensorForm, pm10: e.target.value })}
+                      type="number"
+                      step="0.1"
+                      placeholder="PM10 (optional)"
+                      className={`px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-cyan-400 ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'}`}
+                    />
+                  </div>
+                  <button type="submit" className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition">
+                    {t.submitReading}
+                  </button>
+                  {sensorError && <div className="text-[11px] text-rose-400 font-mono">{sensorError}</div>}
+                  {sensorAck && (
+                    <div className="text-[11px] text-emerald-300 font-mono space-y-0.5">
+                      <div>Recorded #{sensorAck.id} • NAQI {sensorAck.computed_aqi} ({sensorAck.aqi_category})</div>
+                      <div className="text-slate-400">{sensorAck.plain_summary}</div>
+                    </div>
+                  )}
+                </form>
+
                 {/* Uploaded Image Preview */}
                 {imagePreview && (
                   <div className="p-3 rounded-2xl bg-[#080D1D] border border-slate-800 flex items-center gap-4">
@@ -1077,11 +1218,13 @@ export default function App() {
                       className="w-20 h-20 object-cover rounded-xl border border-slate-700 shadow-md"
                     />
                     <div className="text-xs text-slate-300">
-                      <span className="font-bold text-white block mb-0.5">Uploaded Citizen Photo</span>
+                      <span className="font-bold text-white block mb-0.5">{t.uploadedCitizenPhoto}</span>
                       <span className="text-[11px] text-slate-400 block font-mono">
                         {uploadedImage ? `${(uploadedImage.size / 1024).toFixed(1)} KB` : 'Image Ready'}
                       </span>
-                      <span className="text-[10px] text-cyan-400 font-mono">Analyzed by Gemini 2.5 Flash Forensics</span>
+                      <span className="text-[10px] text-cyan-400 font-mono">
+                        {imageAnalysis?.model_used ? `Analyzed by ${imageAnalysis.model_used}` : 'Awaiting vision analysis'}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -1149,7 +1292,7 @@ export default function App() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-sm font-bold text-slate-300 flex items-center gap-1.5">
-                    <Globe className="w-4 h-4 text-cyan-400" /> Real-Time Satellite Pass
+                    <Globe className="w-4 h-4 text-cyan-400" /> {t.realtimeSatellitePass}
                   </h3>
                   <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 px-2.5 py-0.5 rounded border border-cyan-500/30">
                     Sentinel-5P / ESRI World Imagery
@@ -1183,11 +1326,11 @@ export default function App() {
 
                   <div className="grid grid-cols-2 gap-2 text-xs font-mono text-slate-300">
                     <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
-                      <span className="text-slate-500 block text-[10px]">Tropospheric NO2 Column</span>
+                      <span className="text-slate-500 block text-[10px]">{t.tropoNo2Column}</span>
                       <span className="font-bold text-cyan-400">
                         {fusionLoading
-                          ? 'Retrieving…'
-                          : fusion?.satellite_no2?.column_display || 'Unavailable'}
+                          ? t.retrieving
+                          : fusion?.satellite_no2?.column_display || t.unavailable}
                       </span>
                       {fusion?.satellite_no2?.satellite_no2_available && (
                         <span className="block text-[9px] text-slate-500 mt-0.5">
@@ -1197,9 +1340,45 @@ export default function App() {
                       )}
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
-                      <span className="text-slate-500 block text-[10px]">Thermal Fire Anomaly</span>
-                      <span className="font-bold text-amber-400">+1.4σ Detected</span>
+                      <span className="text-slate-500 block text-[10px]">{t.activeFireDetections}</span>
+                      <span className="font-bold text-amber-400">
+                        {fusionLoading ? t.retrieving : fusion?.active_fires?.display || t.unavailable}
+                      </span>
+                      <span className="block text-[9px] text-slate-500 mt-0.5">{fusion?.active_fires?.source}</span>
                     </div>
+                  </div>
+
+                  {/* Fused evidence ledger */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-[10px] font-mono text-slate-400">
+                      <span>{t.evidenceContributing}</span>
+                      {fusion?.event && (
+                        <span className="text-cyan-400">
+                          {Math.round(fusion.event.composite_confidence * 100)}% · {fusion.event.severity}
+                        </span>
+                      )}
+                    </div>
+                    {(fusion?.event?.evidence_breakdown || []).map((ev: any, idx: number) => (
+                      <div key={idx} className="p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-[10px]">
+                        <div className="flex justify-between items-center gap-2">
+                          <span className="font-bold text-slate-200">{ev.name}</span>
+                          <span className={`font-mono px-1.5 py-0.5 rounded border ${
+                            ev.data_status === 'REAL'
+                              ? 'text-emerald-300 border-emerald-700 bg-emerald-950/50'
+                              : 'text-amber-300 border-amber-700 bg-amber-950/50'
+                          }`}>
+                            {ev.data_status}
+                          </span>
+                        </div>
+                        <div className="text-slate-400 mt-0.5">{ev.description}</div>
+                        <div className="font-mono text-slate-500 mt-0.5">
+                          {ev.status} · +{ev.confidence_contribution} confidence · {ev.raw_source}
+                        </div>
+                      </div>
+                    ))}
+                    {!fusionLoading && !fusion?.event?.evidence_breakdown?.length && (
+                      <div className="text-[10px] text-slate-500">{t.noFusedEvidence}</div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1213,16 +1392,31 @@ export default function App() {
       {activeTab === 'authority' && isAdmin && (
         <main className="max-w-7xl mx-auto p-4 space-y-6 relative z-[10]">
           <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#0E1731] border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
-            <h2 className="text-lg font-bold mb-4">Government Intervention Dispatch Order</h2>
+            <h2 className="text-lg font-bold mb-4">{t.dispatchOrderTitle}</h2>
             <div className={`p-4 rounded-xl border text-xs mb-4 ${isDark ? 'bg-[#080D1D] border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <p>{authorityRec?.summary || "Analyzing telemetry with Gemini..."}</p>
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <button onClick={() => sendFeedback(t.confirmEvent)} className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold">✓ {t.confirmEvent}</button>
               <button onClick={() => sendFeedback(t.needsInspect)} className="px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-bold">? {t.needsInspect}</button>
               <button onClick={() => sendFeedback(t.falseAlarm)} className="px-4 py-2 bg-rose-700 text-white rounded-xl text-xs font-bold">✕ {t.falseAlarm}</button>
+              <button onClick={dispatchIntervention} disabled={dispatchLoading} className="flex items-center gap-1.5 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 text-white rounded-xl text-xs font-bold">
+                <Send className={`w-3.5 h-3.5 ${dispatchLoading ? 'animate-pulse' : ''}`} /> {t.dispatchNotice}
+              </button>
+            </div>
+            <div className="mt-2 text-[10px] font-mono text-slate-400">
+              Delivery channels configured: {alertChannels.length ? alertChannels.join(', ') : 'none (set ALERT_WEBHOOK_URL or SMTP settings)'}
             </div>
             {feedbackStatus && <div className="mt-3 text-xs text-emerald-400 font-mono">{feedbackStatus}</div>}
+            {dispatchResult && (
+              <div className={`mt-3 p-3 rounded-xl border text-xs ${isDark ? 'bg-[#080D1D] border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="font-bold font-mono text-cyan-400">{dispatchResult.delivery_status}</div>
+                {dispatchResult.reason && <div className="text-slate-400 mt-1">{dispatchResult.reason}</div>}
+                {dispatchResult.results?.map((r: any, idx: number) => (
+                  <div key={idx} className="font-mono text-[10px] text-slate-300 mt-1">{r.channel}: {r.status} — {r.detail}</div>
+                ))}
+              </div>
+            )}
           </div>
         </main>
       )}
@@ -1240,18 +1434,30 @@ export default function App() {
                 <RefreshCw className={`w-4 h-4 ${fedLoading ? 'animate-spin' : ''}`} /> {t.fedSyncBtn}
               </button>
             </div>
+            <div className={`p-4 rounded-xl border text-xs mb-4 font-mono ${isDark ? 'bg-[#080D1D] border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className="text-cyan-400 font-bold">{fedSyncData?.global_model_version || 'no global model yet'}</div>
+              <div className="text-slate-400 mt-1">{fedSyncData?.status}</div>
+              {fedSyncData?.global_mae != null && (
+                <div className="text-slate-400 mt-1">
+                  {t.globalHoldoutMae} <span className="text-cyan-400">{fedSyncData.global_mae} µg/m³</span>
+                  {fedSyncData.total_samples_aggregated != null && <> • {fedSyncData.total_samples_aggregated} local samples aggregated (never shared)</>}
+                  {fedSyncData.round_number != null && <> • round {fedSyncData.round_number}</>}
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {(fedSyncData?.nodes || [
-                { name: "Delhi NCR Node", samples: 5120, mae: 13.8, status: "Online (Privacy Preserved)" },
-                { name: "Karnataka (Bengaluru) Node", samples: 2450, mae: 6.8, status: "Online (Privacy Preserved)" },
-                { name: "Punjab Agro Node", samples: 3890, mae: 17.5, status: "Online (Privacy Preserved)" }
-              ]).map((n: any, idx: number) => (
+              {(fedSyncData?.nodes || []).map((n: any, idx: number) => (
                 <div key={idx} className={`p-4 rounded-xl border text-xs ${isDark ? 'bg-[#080D1D] border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <div className="font-bold text-sm mb-1">{n.name}</div>
-                  <div className="text-slate-400">{t.samples}: <span className="font-mono text-cyan-500 font-bold">{n.samples}</span></div>
-                  <div className="text-slate-400">{t.mae}: <span className="font-mono">{n.mae} µg/m³</span></div>
+                  <div className="font-bold text-sm mb-1">{n.region_name}</div>
+                  <div className="text-[10px] text-slate-500 mb-1">{n.focus}</div>
+                  <div className="text-slate-400">{t.samples}: <span className="font-mono text-cyan-500 font-bold">{n.local_samples}</span></div>
+                  <div className="text-slate-400">{t.mae}: <span className="font-mono">{n.mean_absolute_error} µg/m³</span></div>
+                  <div className="text-[10px] font-mono text-slate-500 mt-1">{n.local_model_version} • {n.status}</div>
                 </div>
               ))}
+              {!fedSyncData?.nodes?.length && (
+                <div className="text-xs text-slate-400">No node has trained yet — run an aggregation round to bring the state nodes online.</div>
+              )}
             </div>
           </div>
         </main>

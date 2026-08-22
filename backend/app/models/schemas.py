@@ -122,10 +122,13 @@ class AuthorityFeedbackRequest(BaseModel):
 class FederatedNodeStatus(BaseModel):
     node_id: str
     region_name: str
+    focus: Optional[str] = None
     local_samples: int
     local_model_version: str
+    local_mae: Optional[float] = None
+    global_mae: Optional[float] = None
     mean_absolute_error: float
-    last_trained: str
+    last_trained: Optional[str] = None
     status: str
 
 class FederatedAggregationResponse(BaseModel):
@@ -133,5 +136,31 @@ class FederatedAggregationResponse(BaseModel):
     participating_nodes: List[str]
     total_samples_aggregated: int
     weighted_mae: float
+    global_mae: float
+    feature_names: List[str]
+    global_coefficients: Optional[List[float]] = None
+    global_intercept: Optional[float] = None
+    round_number: Optional[int] = None
+    nodes: List[FederatedNodeStatus]
     status: str
     timestamp: str
+
+class CitizenSensorReading(BaseModel):
+    device_id: str = Field(min_length=1, max_length=64)
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    pm25: float = Field(ge=0, le=2000, description="Particulate matter < 2.5 µm in µg/m³")
+    pm10: Optional[float] = Field(default=None, ge=0, le=3000)
+    temperature_c: Optional[float] = Field(default=None, ge=-50, le=70)
+    humidity_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+class CitizenSensorAck(BaseModel):
+    id: int
+    recorded_at: str
+    device_id: str
+    pm25: float
+    computed_aqi: int
+    aqi_category: str
+    deviation_vs_official_pct: Optional[float]
+    plain_summary: str
