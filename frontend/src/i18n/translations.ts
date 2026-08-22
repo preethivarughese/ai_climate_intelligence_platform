@@ -1,5 +1,9 @@
 export const i18n = {
   en: {
+    adminModeActive: "Admin Mode Active",
+    confirmEvent: "Confirm Event",
+    needsInspect: "Needs Inspection",
+    falseAlarm: "False Alarm",
     appTitle: "AI Climate Intelligence Platform",
     appSubtitle: "Federated Telemetry • Evidence Fusion • Rapid Response",
     tabMap: "Interactive Hotspot Map",
@@ -97,6 +101,10 @@ export const i18n = {
     }
   },
   hi: {
+    adminModeActive: "प्रशासनिक मोड सक्रिय",
+    confirmEvent: "घटना की पुष्टि करें",
+    needsInspect: "निरीक्षण आवश्यक",
+    falseAlarm: "झूठा अलार्म",
     appTitle: "एआई जलवायु आसूचना मंच",
     appSubtitle: "फेडरेटेड टेलीमेट्री • साक्ष्य विश्लेषण • त्वरित प्रशासनिक कार्रवाई",
     tabMap: "इंटरैक्टिव हॉटस्पॉट मानचित्र",
@@ -194,6 +202,10 @@ export const i18n = {
     }
   },
   kn: {
+    adminModeActive: "ಆಡಳಿತ ಮೋಡ್ ಸಕ್ರಿಯವಾಗಿದೆ",
+    confirmEvent: "ಘಟನೆಯನ್ನು ದೃಢೀಕರಿಸಿ",
+    needsInspect: "ಪರಿಶೀಲನೆ ಅಗತ್ಯವಿದೆ",
+    falseAlarm: "ಸುಳ್ಳು ಎಚ್ಚರಿಕೆ",
     appTitle: "ಎಐ ಹವಾಮಾನ ಗುಪ್ತಚರ ವೇದಿಕೆ",
     appSubtitle: "ಫೆಡರೇಟೆಡ್ ದತ್ತಾಂಶ • ಸಾಕ್ಷ್ಯ ಜೋಡಣೆ • ತ್ವರಿತ ಕ್ರಮ",
     tabMap: "ನಕ್ಷೆಯಲ್ಲಿ ಹಾಟ್‌ಸ್ಪಾಟ್‌ಗಳು",

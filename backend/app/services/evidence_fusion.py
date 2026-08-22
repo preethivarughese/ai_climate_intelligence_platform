@@ -1,7 +1,7 @@
 from typing import Dict, Any, List, Optional
 from ..models.schemas import EvidenceSourceItem, FusedHotspotEvent, DataStatus
 
-def fuse_environmental_signals(region_id: str, region_name: str, lat: float, lon: float, current_pm25: float, baseline_pm25: float, image_result: Optional[Dict[str, Any]], satellite_no2_available: bool, satellite_no2_zscore: float, wind_speed_kmh: float, wind_direction_deg: float, weather_inversion: bool) -> FusedHotspotEvent:
+def fuse_environmental_signals(region_id: str, region_name: str, lat: float, lon: float, current_pm25: float, baseline_pm25: float, image_result: Optional[Dict[str, Any]], satellite_no2_available: bool, satellite_no2_zscore: float, wind_speed_kmh: float, wind_direction_deg: float, weather_inversion: bool, satellite_source: str = "Copernicus Sentinel-5P", satellite_is_direct: bool = True) -> FusedHotspotEvent:
     evidence_items = []
     
     deviation = max(0.0, (current_pm25 - baseline_pm25) / baseline_pm25)
@@ -38,11 +38,14 @@ def fuse_environmental_signals(region_id: str, region_name: str, lat: float, lon
     if satellite_no2_available:
         evidence_items.append(EvidenceSourceItem(
             name="Sentinel-5P TROPOMI NO2 Column",
-            status=f"Elevated Plume Detected (+{satellite_no2_zscore:.1f}σ)",
+            status=(
+                f"Elevated Plume Detected ({satellite_no2_zscore:+.1f}σ)" if satellite_no2_zscore > 0
+                else f"No Column Anomaly ({satellite_no2_zscore:+.1f}σ)"
+            ),
             confidence_contribution=round(0.20 * min(max(satellite_no2_zscore / 2.5, 0.0), 1.0), 3),
             description="Orbital spectrometer indicates tropospheric column density anomaly.",
-            raw_source="Copernicus Sentinel-5P",
-            data_status=DataStatus.REAL
+            raw_source=satellite_source,
+            data_status=DataStatus.REAL if satellite_is_direct else DataStatus.SIMULATED_PROTOTYPE
         ))
 
     evidence_items.append(EvidenceSourceItem(
