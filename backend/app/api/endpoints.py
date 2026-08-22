@@ -1,18 +1,22 @@
 from fastapi import APIRouter, HTTPException, Form, UploadFile, File
 from typing import List, Optional
 from datetime import datetime, timedelta
+import logging
 import requests
 import json
-import os
 import math
 from google import genai
 from google.genai import types
 from ..core.config import settings
+from ..services.evidence_fusion import fuse_environmental_signals
+from ..services.satellite_no2 import get_tropospheric_no2
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 feedback_db = []
 
-WAQI_TOKEN = os.getenv("WAQI_API_TOKEN", "")
+WAQI_TOKEN = settings.WAQI_API_TOKEN
 
 def calculate_cpcb_naqi(pm25: float, pm10: float) -> tuple[int, str]:
     if pm25 <= 30: aqi_25 = (50 / 30) * pm25
@@ -365,17 +369,51 @@ def search_any_indian_city(query: str):
     except Exception as e:
         raise HTTPException(400, f"Search failed: {str(e)}")
 
+IMAGE_REJECTION = {
+    "is_relevant": False,
+    "event_type": "unrelated",
+    "visual_evidence": ["Optical signature does not meet threshold for outdoor combustion or dust plumes"],
+    "severity": "none",
+    "confidence": 0.05,
+    "plain_description": "Rejection Notice: No visible air pollution phenomena or hazardous smoke plumes detected in this photo."
+}
+
+def _image_error(analysis_status: str, message: str) -> dict:
+    """Rejection payload annotated so the frontend can distinguish failures from a genuine 'not relevant' verdict."""
+    return {
+        **IMAGE_REJECTION,
+        "analysis_status": analysis_status,
+        "analysis_error": message,
+        "plain_description": message
+    }
+
 @router.post("/images/analyze")
 async def analyze_image_with_gemini(
     file: Optional[UploadFile] = File(None),
     preset_scenario: Optional[str] = Form(None)
 ):
     if file:
+        content_type = (file.content_type or "").lower()
+        if not content_type.startswith("image/"):
+            raise HTTPException(
+                400,
+                f"Unsupported upload type '{file.content_type or 'unknown'}'. Please upload an image file (JPEG, PNG or WEBP)."
+            )
+
         bytes_data = await file.read()
-        if settings.GEMINI_API_KEY:
-            try:
-                client = genai.Client(api_key=settings.GEMINI_API_KEY)
-                prompt = """You are an Environmental Forensics and Optical Smoke Inspection AI.
+        if not bytes_data:
+            raise HTTPException(400, "Uploaded image is empty.")
+
+        if not settings.GEMINI_API_KEY:
+            logger.error("GEMINI_API_KEY is not configured; cannot run vision analysis on citizen upload.")
+            return _image_error(
+                "MISSING_API_KEY",
+                "Vision analysis unavailable: the server has no GEMINI_API_KEY configured. Set it in the backend environment and retry."
+            )
+
+        try:
+            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            prompt = """You are an Environmental Forensics and Optical Smoke Inspection AI.
 Analyze this citizen-uploaded photo for outdoor air quality hazards and environmental combustion events.
 
 STRICT VERIFICATION GUIDELINES:
@@ -409,26 +447,38 @@ Return ONLY valid JSON matching this schema:
   "confidence": float,
   "plain_description": string
 }"""
-                res = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[
-                        types.Part.from_bytes(data=bytes_data, mime_type=file.content_type or "image/jpeg"),
-                        prompt
-                    ],
-                    config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
-                )
-                return json.loads(res.text)
-            except Exception as e:
-                print(f"Gemini API error: {e}")
+            res = client.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=[
+                    types.Part.from_bytes(data=bytes_data, mime_type=content_type),
+                    prompt
+                ],
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
+            )
+        except Exception as e:
+            logger.exception("Gemini vision request failed")
+            return _image_error("UPSTREAM_ERROR", f"Vision analysis failed while calling Gemini: {e}")
 
-        return {
-            "is_relevant": False,
-            "event_type": "unrelated",
-            "visual_evidence": ["Optical signature does not meet threshold for outdoor combustion or dust plumes"],
-            "severity": "none",
-            "confidence": 0.05,
-            "plain_description": "Rejection Notice: No visible air pollution phenomena or hazardous smoke plumes detected in this photo."
-        }
+        raw_text = (res.text or "").strip()
+        try:
+            parsed = json.loads(raw_text)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error("Gemini returned non-JSON response: %s | payload=%.500s", e, raw_text)
+            return _image_error(
+                "INVALID_MODEL_RESPONSE",
+                "Vision analysis returned a malformed (non-JSON) response from Gemini. Please retry."
+            )
+
+        if not isinstance(parsed, dict) or "is_relevant" not in parsed:
+            logger.error("Gemini JSON missing expected fields: %.500s", raw_text)
+            return _image_error(
+                "INVALID_MODEL_RESPONSE",
+                "Vision analysis returned JSON that does not match the expected schema. Please retry."
+            )
+
+        parsed.setdefault("visual_evidence", [])
+        parsed["analysis_status"] = "OK"
+        return parsed
 
     presets = {
         "biomass_burning": {
@@ -457,6 +507,37 @@ Return ONLY valid JSON matching this schema:
         }
     }
     return presets.get(preset_scenario, presets["unrelated_garbage"])
+
+@router.get("/fusion")
+def get_fused_hotspot(
+    city: str = "Delhi NCR",
+    lat: float = 28.6139,
+    lon: float = 77.2090,
+    state: str = "India"
+):
+    """Multi-source evidence fusion for a coordinate, including live Sentinel-5P NO2."""
+    city_data = fetch_live_city_data(city, lat, lon, state)
+    baseline_pm25 = city_data["climatology"]["baseline_30d"]["mean_pm25_ugm3"] or 1.0
+    no2 = get_tropospheric_no2(lat, lon)
+
+    event = fuse_environmental_signals(
+        region_id=city_data["id"],
+        region_name=city_data["name"],
+        lat=lat,
+        lon=lon,
+        current_pm25=city_data["current_pm25"],
+        baseline_pm25=baseline_pm25,
+        image_result=None,
+        satellite_no2_available=no2["satellite_no2_available"],
+        satellite_no2_zscore=no2["satellite_no2_zscore"],
+        wind_speed_kmh=city_data["wind_speed"],
+        wind_direction_deg=city_data["wind_dir"],
+        weather_inversion=city_data["climatology"]["deviations_sigma"]["wind_z_score"] <= -1.8,
+        satellite_source=no2["source"],
+        satellite_is_direct=no2["is_direct_satellite_retrieval"]
+    )
+
+    return {"event": event, "satellite_no2": no2}
 
 @router.post("/authority/recommendations")
 def generate_recommendation(payload: dict):

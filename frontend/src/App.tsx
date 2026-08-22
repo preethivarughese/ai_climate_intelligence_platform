@@ -7,6 +7,7 @@ import {
 import { MapContainer, TileLayer, Marker, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { i18n } from './i18n/translations';
+import { apiUrl } from './api';
 
 function ChangeMapView({ center }: { center: [number, number] }) {
   const map = useMap();
@@ -80,6 +81,8 @@ export default function App() {
   const [feedbackStatus, setFeedbackStatus] = useState<string>('');
   const [fedSyncData, setFedSyncData] = useState<any>(null);
   const [fedLoading, setFedLoading] = useState<boolean>(false);
+  const [fusion, setFusion] = useState<any>(null);
+  const [fusionLoading, setFusionLoading] = useState<boolean>(false);
 
   const t = i18n[lang];
   const isDark = theme === 'dark';
@@ -90,7 +93,7 @@ export default function App() {
 
   const loadDefaultRegions = async () => {
     try {
-      const res = await fetch('/api/regions');
+      const res = await fetch(apiUrl('/api/regions'));
       const data = await res.json();
       setRegions(data);
       if (data.length > 0) {
@@ -107,7 +110,7 @@ export default function App() {
     if (!searchQuery.trim()) return;
     setSearchError('');
     try {
-      const res = await fetch(`/api/search-city?query=${encodeURIComponent(searchQuery)}`);
+      const res = await fetch(apiUrl(`/api/search-city?query=${encodeURIComponent(searchQuery)}`));
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.detail || "City not found");
@@ -188,11 +191,24 @@ export default function App() {
     try {
       const form = new FormData();
       form.append('file', file);
-      const res = await fetch('/api/images/analyze', { method: 'POST', body: form });
+      const res = await fetch(apiUrl('/api/images/analyze'), { method: 'POST', body: form });
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.detail || `Upload failed (HTTP ${res.status})`);
+      }
       setImageAnalysis(data);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setImageAnalysis({
+        is_relevant: false,
+        event_type: 'unavailable',
+        visual_evidence: [],
+        severity: 'none',
+        confidence: 0,
+        analysis_status: 'REQUEST_FAILED',
+        analysis_error: e?.message || 'Image analysis request failed.',
+        plain_description: e?.message || 'Image analysis request failed.'
+      });
     } finally {
       setImageLoading(false);
     }
@@ -207,7 +223,7 @@ export default function App() {
         likely_event_type: imageAnalysis?.event_type || 'Industrial & Road Dust Plume',
         language: lang
       };
-      const res = await fetch('/api/authority/recommendations', {
+      const res = await fetch(apiUrl('/api/authority/recommendations'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -220,7 +236,7 @@ export default function App() {
 
   const sendFeedback = async (decision: string) => {
     try {
-      const res = await fetch('/api/authority/feedback', {
+      const res = await fetch(apiUrl('/api/authority/feedback'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -239,7 +255,7 @@ export default function App() {
   const triggerFedSync = async () => {
     setFedLoading(true);
     try {
-      const res = await fetch('/api/federated/sync');
+      const res = await fetch(apiUrl('/api/federated/sync'));
       setFedSyncData(await res.json());
     } catch (e) {
       console.error(e);
@@ -247,6 +263,27 @@ export default function App() {
       setFedLoading(false);
     }
   };
+
+  const loadFusion = async (region: any) => {
+    setFusionLoading(true);
+    try {
+      const query = `city=${encodeURIComponent(region.name)}&lat=${region.lat}&lon=${region.lon}&state=${encodeURIComponent(region.state || 'India')}`;
+      const res = await fetch(apiUrl(`/api/fusion?${query}`));
+      if (!res.ok) throw new Error(`Fusion request failed (HTTP ${res.status})`);
+      setFusion(await res.json());
+    } catch (e) {
+      console.error(e);
+      setFusion(null);
+    } finally {
+      setFusionLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'evidence' && selectedRegion) {
+      loadFusion(selectedRegion);
+    }
+  }, [activeTab, selectedRegion?.lat, selectedRegion?.lon]);
 
   const getAqiColor = (aqi: number) => {
     if (aqi <= 50) return '#10B981';
@@ -1083,8 +1120,16 @@ export default function App() {
                     </div>
 
                     <p className="leading-relaxed font-sans text-xs">
-                      {imageAnalysis.is_relevant ? imageAnalysis.plain_description : t.rejectedNotice}
+                      {imageAnalysis.is_relevant
+                        ? imageAnalysis.plain_description
+                        : imageAnalysis.analysis_error || t.rejectedNotice}
                     </p>
+
+                    {imageAnalysis.analysis_error && (
+                      <p className="text-[10px] font-mono text-amber-300">
+                        Analysis status: {imageAnalysis.analysis_status}
+                      </p>
+                    )}
 
                     {imageAnalysis.visual_evidence?.length > 0 && (
                       <div className="pt-2 border-t border-slate-800/80 flex flex-wrap gap-1.5 items-center">
@@ -1139,7 +1184,17 @@ export default function App() {
                   <div className="grid grid-cols-2 gap-2 text-xs font-mono text-slate-300">
                     <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
                       <span className="text-slate-500 block text-[10px]">Tropospheric NO2 Column</span>
-                      <span className="font-bold text-cyan-400">1.8 × 10¹⁵ molec/cm²</span>
+                      <span className="font-bold text-cyan-400">
+                        {fusionLoading
+                          ? 'Retrieving…'
+                          : fusion?.satellite_no2?.column_display || 'Unavailable'}
+                      </span>
+                      {fusion?.satellite_no2?.satellite_no2_available && (
+                        <span className="block text-[9px] text-slate-500 mt-0.5">
+                          {fusion.satellite_no2.satellite_no2_zscore >= 0 ? '+' : ''}
+                          {fusion.satellite_no2.satellite_no2_zscore}σ vs 30-day baseline · {fusion.satellite_no2.source}
+                        </span>
+                      )}
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
                       <span className="text-slate-500 block text-[10px]">Thermal Fire Anomaly</span>
