@@ -8,6 +8,8 @@ import { MapContainer, TileLayer, Marker, LayersControl, useMap, useMapEvents } 
 import L from 'leaflet';
 import { i18n } from './i18n/translations';
 import { apiUrl } from './api';
+import { useAuth } from './contexts/AuthContext';
+import { AuthModal, AuthButton } from './components/AuthModal';
 
 /** FastAPI returns validation errors as a list of {loc, msg}; flatten them into something readable. */
 function describeApiError(body: any, status: number, fallback: string): string {
@@ -67,15 +69,11 @@ const createAqiMapIcon = (aqi: number, color: string, isSelected: boolean = fals
 };
 
 export default function App() {
+  const { user, userProfile, loading: authLoading } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [lang, setLang] = useState<'en' | 'hi' | 'kn'>('en');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [activeTab, setActiveTab] = useState<'national' | 'map' | 'corridors' | 'evidence' | 'authority' | 'federated'>('national');
-  
-  // Auth state
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
-  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
-  const [authPassword, setAuthPassword] = useState<string>('');
-  const [authError, setAuthError] = useState<string>('');
 
   const [regions, setRegions] = useState<any[]>([]);
   const [selectedRegion, setSelectedRegion] = useState<any>(null);
@@ -181,27 +179,6 @@ export default function App() {
       status: "Calculated Boundary Mesh Point"
     };
     handleSelectSpotFromMap(customSpot);
-  };
-
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError('');
-    try {
-      const res = await fetch(apiUrl('/api/authority/session'), {
-        headers: { Authorization: `Bearer ${authPassword}` }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || `Sign-in failed (HTTP ${res.status})`);
-      setAdminToken(authPassword);
-      setIsAdmin(true);
-      setAlertChannels(data.configured_channels || []);
-      setShowLoginModal(false);
-      setAuthPassword('');
-      setActiveTab('authority');
-      fetchAuthorityOrders();
-    } catch (err: any) {
-      setAuthError(err?.message || 'Sign-in failed.');
-    }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -564,46 +541,16 @@ export default function App() {
         </div>
       )}
 
-      {/* 2. Admin Auth Modal */}
-      {showLoginModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
-          <div className={`w-full max-w-md p-6 rounded-3xl border shadow-2xl ${
-            isDark ? 'bg-[#0E1731] border-slate-700' : 'bg-white border-slate-200'
-          }`}>
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-6 h-6 text-rose-500" />
-                <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{t.officerLoginTitle}</h3>
-              </div>
-              <button onClick={() => setShowLoginModal(false)} className="text-slate-400 hover:text-slate-200">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <p className="text-xs text-slate-400 mb-4">{t.officerLoginDesc}</p>
-            <form onSubmit={handleLoginSubmit} className="space-y-4">
-              <div>
-                <label className={`text-xs font-semibold block mb-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t.passcode}</label>
-                <div className="relative">
-                  <KeyRound className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
-                  <input 
-                    type="password"
-                    value={authPassword}
-                    onChange={(e) => setAuthPassword(e.target.value)}
-                    placeholder="Operator access token (ADMIN_ACCESS_TOKEN)"
-                    className={`w-full pl-9 pr-4 py-2.5 rounded-xl text-xs border focus:outline-none focus:border-cyan-400 ${
-                      isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'
-                    }`}
-                  />
-                </div>
-                {authError && <p className="text-xs text-rose-400 mt-1 font-medium">{authError}</p>}
-              </div>
-              <button type="submit" className="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs rounded-xl transition">
-                {t.authenticateUnlock}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* 2. Firebase Auth Modal */}
+      <AuthModal 
+        isOpen={showAuthModal} 
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={() => {
+          if (userProfile?.role === 'authority') {
+            setActiveTab('authority');
+          }
+        }}
+      />
 
       {/* Header Container */}
       <header className="p-4 z-[10] relative">
@@ -626,17 +573,7 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {isAdmin ? (
-              <button onClick={() => setIsAdmin(false)} className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/20 text-rose-300 border border-rose-500 rounded-xl text-xs font-bold transition">
-                <ShieldCheck className="w-4 h-4 text-rose-400" /> {t.adminModeActive} (Log Out)
-              </button>
-            ) : (
-              <button onClick={() => setShowLoginModal(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border ${
-                isDark ? 'bg-slate-800 hover:bg-slate-750 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-              }`}>
-                <Lock className="w-3.5 h-3.5 text-cyan-500" /> {t.officerLogin}
-              </button>
-            )}
+            <AuthButton onClick={() => setShowAuthModal(true)} />
 
             <button onClick={() => setTheme(isDark ? 'light' : 'dark')} className={`p-2 rounded-xl border transition ${
               isDark ? 'bg-slate-800 border-slate-700 text-amber-400' : 'bg-slate-100 border-slate-300 text-slate-700'
