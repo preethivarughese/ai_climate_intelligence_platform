@@ -458,7 +458,7 @@ export default function App() {
           }`}>
             <div className="flex justify-between items-start mb-4">
               <div>
-                <span className="text-[10px] font-mono text-cyan-400 uppercase font-bold tracking-wider">Meteorological Telemetry & Multi-Hazard Assessment</span>
+                <span className="text-[10px] font-mono text-cyan-400 uppercase font-bold tracking-wider">{t.metTelemetryTitle}</span>
                 <h3 className="text-xl font-bold flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-cyan-400" /> {telemetryModalData.name} ({telemetryModalData.state})
                 </h3>
@@ -490,25 +490,25 @@ export default function App() {
                 <span className="text-xs font-bold flex items-center gap-1.5 text-cyan-400">
                   <Compass className="w-4 h-4" /> 30-Day Climate Normal vs. Live Deviation (Z-Scores)
                 </span>
-                <span className="text-[10px] font-mono text-slate-400">ERA5 / IMD Reanalysis</span>
+                <span className="text-[10px] font-mono text-slate-400">{t.era5Reanalysis}</span>
               </div>
               <div className="grid grid-cols-3 gap-2 text-xs font-mono">
                 <div className="p-2.5 rounded-xl bg-[#080D1D] border border-slate-800">
-                  <span className="text-slate-400 block text-[10px]">Wind Velocity (30d Normal)</span>
+                  <span className="text-slate-400 block text-[10px]">{t.windVelocityNormal}</span>
                   <div className="font-bold text-white mt-0.5">{telemetryModalData.climatology?.baseline_30d?.mean_wind_kmh} km/h</div>
                   <span className={`text-[10px] font-bold ${telemetryModalData.climatology?.deviations_sigma?.wind_z_score >= 2 ? 'text-rose-400' : 'text-cyan-400'}`}>
                     {telemetryModalData.climatology?.deviations_sigma?.wind_z_score >= 0 ? '+' : ''}{telemetryModalData.climatology?.deviations_sigma?.wind_z_score}σ (Std Dev)
                   </span>
                 </div>
                 <div className="p-2.5 rounded-xl bg-[#080D1D] border border-slate-800">
-                  <span className="text-slate-400 block text-[10px]">Temperature (30d Normal)</span>
+                  <span className="text-slate-400 block text-[10px]">{t.temperatureNormal}</span>
                   <div className="font-bold text-white mt-0.5">{telemetryModalData.climatology?.baseline_30d?.mean_temp_c} °C</div>
                   <span className="text-[10px] text-cyan-400">
                     {telemetryModalData.climatology?.deviations_sigma?.temp_z_score >= 0 ? '+' : ''}{telemetryModalData.climatology?.deviations_sigma?.temp_z_score}σ
                   </span>
                 </div>
                 <div className="p-2.5 rounded-xl bg-[#080D1D] border border-slate-800">
-                  <span className="text-slate-400 block text-[10px]">PM2.5 Saturation</span>
+                  <span className="text-slate-400 block text-[10px]">{t.pm25Saturation}</span>
                   <div className="font-bold text-white mt-0.5">{telemetryModalData.climatology?.baseline_30d?.mean_pm25_ugm3} µg/m³</div>
                   <span className={`text-[10px] font-bold ${telemetryModalData.climatology?.deviations_sigma?.pm25_z_score >= 2 ? 'text-rose-400' : 'text-emerald-400'}`}>
                     {telemetryModalData.climatology?.deviations_sigma?.pm25_z_score >= 0 ? '+' : ''}{telemetryModalData.climatology?.deviations_sigma?.pm25_z_score}σ Spike
@@ -521,7 +521,7 @@ export default function App() {
             <div className={`p-4 rounded-2xl border mb-4 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <div className="flex justify-between items-center mb-2">
                 <span className="text-xs font-bold flex items-center gap-1.5 text-orange-400">
-                  <Flame className="w-4 h-4" /> Active Fire Detections (60 km)
+                  <Flame className="w-4 h-4" /> {t.activeFireDetectionsRadius}
                 </span>
                 <span className="text-[10px] font-mono text-slate-400">{telemetryModalData.active_fires?.source}</span>
               </div>
@@ -550,7 +550,7 @@ export default function App() {
             {/* Downwind Vector */}
             <div className={`p-3.5 rounded-xl border text-xs ${isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <div className="flex items-center gap-1.5 font-bold text-cyan-400 mb-1">
-                <Wind className="w-3.5 h-3.5" /> Downwind Trajectory Impact Zones:
+                <Wind className="w-3.5 h-3.5" /> {t.downwindZonesLabel}
               </div>
               <div className="flex flex-wrap gap-1.5 mt-1.5">
                 {getDownwindZones(telemetryModalData.wind_dir, telemetryModalData.name).map((z, idx) => (
@@ -573,16 +573,16 @@ export default function App() {
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-6 h-6 text-rose-500" />
-                <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>CPCB Officer / Admin Login</h3>
+                <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{t.officerLoginTitle}</h3>
               </div>
               <button onClick={() => setShowLoginModal(false)} className="text-slate-400 hover:text-slate-200">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-xs text-slate-400 mb-4">Authenticate to access intervention dispatch orders and model training feedback loops.</p>
+            <p className="text-xs text-slate-400 mb-4">{t.officerLoginDesc}</p>
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div>
-                <label className={`text-xs font-semibold block mb-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Passcode:</label>
+                <label className={`text-xs font-semibold block mb-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{t.passcode}</label>
                 <div className="relative">
                   <KeyRound className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
                   <input 
@@ -598,7 +598,7 @@ export default function App() {
                 {authError && <p className="text-xs text-rose-400 mt-1 font-medium">{authError}</p>}
               </div>
               <button type="submit" className="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs rounded-xl transition">
-                Authenticate & Unlock Dispatch Orders
+                {t.authenticateUnlock}
               </button>
             </form>
           </div>
@@ -774,7 +774,7 @@ export default function App() {
                       <span className="text-6xl md:text-7xl font-black tracking-tight" style={{ color: getAqiColor(selectedRegion.current_aqi) }}>
                         {selectedRegion.current_aqi}
                       </span>
-                      <span className="text-xs font-bold text-slate-400 ml-2">AQI (IN)</span>
+                      <span className="text-xs font-bold text-slate-400 ml-2">{t.aqiIn}</span>
                     </div>
 
                     <div>
@@ -821,7 +821,7 @@ export default function App() {
                     <CloudRain className="w-10 h-10 text-cyan-400" />
                     <div>
                       <div className="text-3xl font-black">{selectedRegion.temp} °C</div>
-                      <div className="text-xs text-slate-400">Live Weather Telemetry</div>
+                      <div className="text-xs text-slate-400">{t.liveWeatherTelemetry}</div>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2 pt-4 border-t border-slate-800 text-xs">
@@ -1167,7 +1167,7 @@ export default function App() {
                 {/* Citizen low-cost sensor intake */}
                 <form onSubmit={submitSensorReading} className={`p-4 rounded-2xl border space-y-3 ${isDark ? 'bg-[#080D1D] border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                   <h3 className="text-sm font-bold text-slate-300 flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-cyan-400" /> Submit a low-cost sensor reading
+                    <Activity className="w-4 h-4 text-cyan-400" /> {t.submitSensorTitle}
                   </h3>
                   <p className="text-[11px] text-slate-400">
                     Readings are geotagged to {selectedRegion.name} and folded into the fusion engine and the next local training round.
@@ -1198,7 +1198,7 @@ export default function App() {
                     />
                   </div>
                   <button type="submit" className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition">
-                    Submit reading
+                    {t.submitReading}
                   </button>
                   {sensorError && <div className="text-[11px] text-rose-400 font-mono">{sensorError}</div>}
                   {sensorAck && (
@@ -1218,7 +1218,7 @@ export default function App() {
                       className="w-20 h-20 object-cover rounded-xl border border-slate-700 shadow-md"
                     />
                     <div className="text-xs text-slate-300">
-                      <span className="font-bold text-white block mb-0.5">Uploaded Citizen Photo</span>
+                      <span className="font-bold text-white block mb-0.5">{t.uploadedCitizenPhoto}</span>
                       <span className="text-[11px] text-slate-400 block font-mono">
                         {uploadedImage ? `${(uploadedImage.size / 1024).toFixed(1)} KB` : 'Image Ready'}
                       </span>
@@ -1292,7 +1292,7 @@ export default function App() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-sm font-bold text-slate-300 flex items-center gap-1.5">
-                    <Globe className="w-4 h-4 text-cyan-400" /> Real-Time Satellite Pass
+                    <Globe className="w-4 h-4 text-cyan-400" /> {t.realtimeSatellitePass}
                   </h3>
                   <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 px-2.5 py-0.5 rounded border border-cyan-500/30">
                     Sentinel-5P / ESRI World Imagery
@@ -1326,11 +1326,11 @@ export default function App() {
 
                   <div className="grid grid-cols-2 gap-2 text-xs font-mono text-slate-300">
                     <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
-                      <span className="text-slate-500 block text-[10px]">Tropospheric NO2 Column</span>
+                      <span className="text-slate-500 block text-[10px]">{t.tropoNo2Column}</span>
                       <span className="font-bold text-cyan-400">
                         {fusionLoading
-                          ? 'Retrieving…'
-                          : fusion?.satellite_no2?.column_display || 'Unavailable'}
+                          ? t.retrieving
+                          : fusion?.satellite_no2?.column_display || t.unavailable}
                       </span>
                       {fusion?.satellite_no2?.satellite_no2_available && (
                         <span className="block text-[9px] text-slate-500 mt-0.5">
@@ -1340,9 +1340,9 @@ export default function App() {
                       )}
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
-                      <span className="text-slate-500 block text-[10px]">Active Fire Detections</span>
+                      <span className="text-slate-500 block text-[10px]">{t.activeFireDetections}</span>
                       <span className="font-bold text-amber-400">
-                        {fusionLoading ? 'Retrieving…' : fusion?.active_fires?.display || 'Unavailable'}
+                        {fusionLoading ? t.retrieving : fusion?.active_fires?.display || t.unavailable}
                       </span>
                       <span className="block text-[9px] text-slate-500 mt-0.5">{fusion?.active_fires?.source}</span>
                     </div>
@@ -1351,7 +1351,7 @@ export default function App() {
                   {/* Fused evidence ledger */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center text-[10px] font-mono text-slate-400">
-                      <span>Evidence contributing to this verdict</span>
+                      <span>{t.evidenceContributing}</span>
                       {fusion?.event && (
                         <span className="text-cyan-400">
                           {Math.round(fusion.event.composite_confidence * 100)}% · {fusion.event.severity}
@@ -1377,7 +1377,7 @@ export default function App() {
                       </div>
                     ))}
                     {!fusionLoading && !fusion?.event?.evidence_breakdown?.length && (
-                      <div className="text-[10px] text-slate-500">No fused evidence for this area yet.</div>
+                      <div className="text-[10px] text-slate-500">{t.noFusedEvidence}</div>
                     )}
                   </div>
                 </div>
@@ -1392,7 +1392,7 @@ export default function App() {
       {activeTab === 'authority' && isAdmin && (
         <main className="max-w-7xl mx-auto p-4 space-y-6 relative z-[10]">
           <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#0E1731] border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
-            <h2 className="text-lg font-bold mb-4">Government Intervention Dispatch Order</h2>
+            <h2 className="text-lg font-bold mb-4">{t.dispatchOrderTitle}</h2>
             <div className={`p-4 rounded-xl border text-xs mb-4 ${isDark ? 'bg-[#080D1D] border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <p>{authorityRec?.summary || "Analyzing telemetry with Gemini..."}</p>
             </div>
@@ -1401,7 +1401,7 @@ export default function App() {
               <button onClick={() => sendFeedback(t.needsInspect)} className="px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-bold">? {t.needsInspect}</button>
               <button onClick={() => sendFeedback(t.falseAlarm)} className="px-4 py-2 bg-rose-700 text-white rounded-xl text-xs font-bold">✕ {t.falseAlarm}</button>
               <button onClick={dispatchIntervention} disabled={dispatchLoading} className="flex items-center gap-1.5 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 text-white rounded-xl text-xs font-bold">
-                <Send className={`w-3.5 h-3.5 ${dispatchLoading ? 'animate-pulse' : ''}`} /> Dispatch intervention notice
+                <Send className={`w-3.5 h-3.5 ${dispatchLoading ? 'animate-pulse' : ''}`} /> {t.dispatchNotice}
               </button>
             </div>
             <div className="mt-2 text-[10px] font-mono text-slate-400">
@@ -1439,7 +1439,7 @@ export default function App() {
               <div className="text-slate-400 mt-1">{fedSyncData?.status}</div>
               {fedSyncData?.global_mae != null && (
                 <div className="text-slate-400 mt-1">
-                  Global holdout MAE: <span className="text-cyan-400">{fedSyncData.global_mae} µg/m³</span>
+                  {t.globalHoldoutMae} <span className="text-cyan-400">{fedSyncData.global_mae} µg/m³</span>
                   {fedSyncData.total_samples_aggregated != null && <> • {fedSyncData.total_samples_aggregated} local samples aggregated (never shared)</>}
                   {fedSyncData.round_number != null && <> • round {fedSyncData.round_number}</>}
                 </div>
