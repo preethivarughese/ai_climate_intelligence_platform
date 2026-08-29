@@ -1,13 +1,15 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import {
+import { 
+  User, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signOut, 
+  onAuthStateChanged,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-  User,
-  updateProfile,
+  updateProfile
 } from 'firebase/auth';
-import { auth, db } from './firebase';
+import { auth, db } from '../services/firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 interface UserProfile {
@@ -40,13 +42,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser: User | null) => {
       setLoading(true);
       setError(null);
       try {
         if (currentUser) {
           setUser(currentUser);
-          // Fetch user profile from Firestore
           const userDocRef = doc(db, 'users', currentUser.uid);
           const userDocSnap = await getDoc(userDocRef);
           if (userDocSnap.exists()) {
@@ -73,8 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(userCredential.user, { displayName });
 
-      // Save user profile to Firestore
-      const userProfile: UserProfile = {
+      const profileData: UserProfile = {
         uid: userCredential.user.uid,
         email,
         displayName,
@@ -84,8 +84,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdAt: new Date(),
       };
 
-      await setDoc(doc(db, 'users', userCredential.user.uid), userProfile);
-      setUserProfile(userProfile);
+      await setDoc(doc(db, 'users', userCredential.user.uid), profileData);
+      setUserProfile(profileData);
     } catch (err: any) {
       setError(err.message || 'Failed to create account');
       throw err;
@@ -98,7 +98,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       setUser(userCredential.user);
 
-      // Fetch user profile
       const userDocRef = doc(db, 'users', userCredential.user.uid);
       const userDocSnap = await getDoc(userDocRef);
       if (userDocSnap.exists()) {

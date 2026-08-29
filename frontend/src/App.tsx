@@ -70,6 +70,7 @@ const createAqiMapIcon = (aqi: number, color: string, isSelected: boolean = fals
 
 export default function App() {
   const { user, userProfile, loading: authLoading } = useAuth();
+  const isAdmin = userProfile?.role === 'authority' || userProfile?.role === 'analyst';
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [lang, setLang] = useState<'en' | 'hi' | 'kn'>('en');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -1061,7 +1062,7 @@ export default function App() {
         </main>
       )}
 
-      {/* TAB 4: Evidence Fusion (CLEAN FORENSIC VERDICT & LIVE ESRI SATELLITE MAP) */}
+      {/* TAB 4: Evidence Fusion */}
       {activeTab === 'evidence' && selectedRegion && (
         <main className="max-w-7xl mx-auto p-4 space-y-6 relative z-[10]">
           <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#0E1731] border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
@@ -1241,7 +1242,7 @@ export default function App() {
                     <MapContainer 
                       center={[selectedRegion.lat, selectedRegion.lon]} 
                       zoom={11} 
-                      style={{ height: '100%', width: '100%' }}
+                      style={{ height: '100%', width: '100%' }} 
                       zoomControl={false}
                     >
                       <ChangeMapView center={[selectedRegion.lat, selectedRegion.lon]} />
@@ -1250,7 +1251,7 @@ export default function App() {
                         url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
                         maxZoom={17}
                       />
-                      <Marker
+                      <Marker 
                         position={[selectedRegion.lat, selectedRegion.lon]}
                         icon={createAqiMapIcon(selectedRegion.current_aqi, getAqiColor(selectedRegion.current_aqi))}
                       />
