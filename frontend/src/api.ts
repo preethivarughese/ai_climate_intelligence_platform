@@ -1,5 +1,8 @@
 // Base URL for the FastAPI backend. Empty in dev so the Vite proxy handles /api,
 // set VITE_API_BASE (e.g. https://api.example.org) for deployed builds.
-export const API_BASE: string = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || 'https://ai-climate-intelligence-platform.onrender.com';
 
-export const apiUrl = (path: string): string => `${API_BASE}${path}`;
+export function apiUrl(path: string): string {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${BACKEND_URL}${cleanPath}`;
+}
