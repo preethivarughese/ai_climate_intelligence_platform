@@ -301,6 +301,12 @@ cd frontend && npx tsc --noEmit && npm run build
 
 For comprehensive deployment instructions, see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 
+### Live demo
+
+- **Frontend:** https://ai-climate-intelligence-app.web.app/
+- **Backend (Render):** https://ai-climate-intelligence-platform.onrender.com
+
+
 ### Quick Deploy to Google Cloud
 
 **Backend (Cloud Run)**:
