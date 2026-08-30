@@ -10,6 +10,7 @@ import { i18n } from './i18n/translations';
 import { apiUrl } from './api';
 import { useAuth } from './contexts/AuthContext';
 import { AuthModal, AuthButton } from './components/AuthModal';
+import { CitizenReportForm } from './components/CitizenReportForm';
 
 /** FastAPI returns validation errors as a list of {loc, msg}; flatten them into something readable. */
 function describeApiError(body: any, status: number, fallback: string): string {
@@ -74,7 +75,7 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [lang, setLang] = useState<'en' | 'hi' | 'kn'>('en');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [activeTab, setActiveTab] = useState<'national' | 'map' | 'corridors' | 'evidence' | 'authority' | 'federated'>('national');
+  const [activeTab, setActiveTab] = useState<'national' | 'map' | 'corridors' | 'citizen' | 'evidence' | 'authority' | 'federated'>('national');
 
   const [regions, setRegions] = useState<any[]>([]);
   const [selectedRegion, setSelectedRegion] = useState<any>(null);
@@ -641,6 +642,7 @@ export default function App() {
           {[
             { id: 'national', icon: MapPin, label: t.tabNational },
             { id: 'map', icon: MapIcon, label: t.tabMap },
+            { id: 'citizen', icon: AlertTriangle, label: 'Report Pollution' },
             { id: 'corridors', icon: TrendingUp, label: t.tabCorridors },
             { id: 'evidence', icon: Layers, label: t.tabEvidence },
             { id: 'authority', icon: FileCheck, label: t.tabAuthority, adminOnly: true },
@@ -985,7 +987,38 @@ export default function App() {
         </main>
       )}
 
-      {/* TAB 3: Freight & Economic Corridors */}
+      {/* TAB 3: Citizen Report Pollution */}
+      {activeTab === 'citizen' && (
+        <main className="max-w-4xl mx-auto p-4 space-y-6">
+          <div className="flex items-center gap-3 mb-6">
+            <AlertTriangle className="w-6 h-6 text-orange-400" />
+            <h2 className="text-2xl font-bold">{t.reportPollution || 'Report Pollution Event'}</h2>
+            <button
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              className="ml-auto p-2 rounded-lg hover:bg-slate-700 transition"
+              title="Toggle theme"
+            >
+              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+          </div>
+          {user && (
+            <CitizenReportForm language={lang} />
+          )}
+          {!user && (
+            <div className={`p-6 rounded-xl border text-center ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-300'}`}>
+              <p className="text-sm mb-4">Please log in to report a pollution event.</p>
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg transition"
+              >
+                Log In
+              </button>
+            </div>
+          )}
+        </main>
+      )}
+
+      {/* TAB 4: Freight & Economic Corridors */}
       {activeTab === 'corridors' && (
         <main className="max-w-7xl mx-auto p-4 space-y-6">
           <div className={`p-6 rounded-3xl border shadow-xl ${isDark ? 'bg-[#0E1731] border-slate-800' : 'bg-white border-slate-200'}`}>
