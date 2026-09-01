@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Upload, Mic, AlertTriangle } from 'lucide-react';
-import { VoiceInput, TextToSpeech, LanguageSwitcher } from './VoiceAndLanguage';
+import { VoiceInput, TextToSpeech } from './VoiceAndLanguage';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../services/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -29,7 +29,6 @@ const getSeverityColor = (severity: string) => {
 
 export const CitizenReportForm: React.FC<CitizenReportFormProps> = ({ language }) => {
   const { user, userProfile } = useAuth();
-  const [language_state, setLanguage] = useState<'en' | 'hi' | 'kn'>(language);
   const [formData, setFormData] = useState<PollutionReport>({
     title: '',
     description: '',
@@ -94,7 +93,7 @@ export const CitizenReportForm: React.FC<CitizenReportFormProps> = ({ language }
     }
   };
 
-  const t = translations[language_state as keyof typeof translations];
+  const t = translations[language as keyof typeof translations];
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -167,7 +166,6 @@ export const CitizenReportForm: React.FC<CitizenReportFormProps> = ({ language }
           </h2>
           <p className="text-gray-400 text-sm mt-1">{t.subtitle}</p>
         </div>
-        <LanguageSwitcher currentLanguage={language_state} onChange={setLanguage} />
       </div>
 
       {submitted && (
@@ -219,9 +217,9 @@ export const CitizenReportForm: React.FC<CitizenReportFormProps> = ({ language }
             className="w-full bg-slate-900 border border-cyan-500/30 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400 min-h-24 resize-none"
           />
           <VoiceInput
-            language={language_state}
+            language={language}
             onTranscript={handleVoiceInput}
-            placeholder={`Speak in ${language_state === 'hi' ? 'Hindi' : language_state === 'kn' ? 'Kannada' : 'English'}...`}
+            placeholder={`Speak in ${language === 'hi' ? 'Hindi' : language === 'kn' ? 'Kannada' : 'English'}...`}
           />
         </div>
 
