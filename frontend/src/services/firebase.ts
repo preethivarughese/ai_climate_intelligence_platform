@@ -3,7 +3,7 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "ai-climate-intelligence-app.firebaseapp.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "ai-climate-intelligence-app",
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "ai-climate-intelligence-app.firebasestorage.app",
