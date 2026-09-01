@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
 import { AlertTriangle, MapPin, Wind, Droplets } from 'lucide-react';
 
 interface PollutionData {
@@ -24,6 +26,15 @@ interface AQIMapProps {
 }
 
 const getAQIColor = (aqi: number): string => {
+  if (aqi <= 50) return '#22c55e'; // green-500
+  if (aqi <= 100) return '#eab308'; // yellow-500
+  if (aqi <= 150) return '#f97316'; // orange-500
+  if (aqi <= 200) return '#ef4444'; // red-500
+  if (aqi <= 300) return '#a855f7'; // purple-500
+  return '#7f1d1d'; // maroon-900
+};
+
+const getAQIColorClass = (aqi: number): string => {
   if (aqi <= 50) return 'bg-green-500';
   if (aqi <= 100) return 'bg-yellow-500';
   if (aqi <= 150) return 'bg-orange-500';
@@ -41,6 +52,35 @@ const getAQICategory = (aqi: number): string => {
   return 'Severe';
 };
 
+const createAQIMarker = (aqi: number): L.DivIcon => {
+  const color = getAQIColor(aqi);
+  return L.divIcon({
+    className: 'aqi-marker',
+    html: `
+      <div style="
+        background-color: ${color};
+        color: white;
+        font-weight: bold;
+        font-size: 12px;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid white;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+        font-family: monospace;
+      ">
+        ${aqi}
+      </div>
+    `,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -16]
+  });
+};
+
 export const AQIMap: React.FC<AQIMapProps> = ({ 
   cities = ['Delhi', 'Mumbai', 'Bangalore', 'Chennai', 'Kolkata', 'Hyderabad', 'Pune', 'Ahmedabad'],
   onCitySelect 
@@ -48,7 +88,6 @@ export const AQIMap: React.FC<AQIMapProps> = ({
   const [pollutionData, setPollutionData] = useState<PollutionData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [mapLoaded, setMapLoaded] = useState(false);
 
   const waqi_token = import.meta.env.VITE_WAQI_API_TOKEN;
 
@@ -97,68 +136,6 @@ export const AQIMap: React.FC<AQIMapProps> = ({
     fetchPollutionData();
   }, [cities, waqi_token]);
 
-  // Load Google Maps
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&libraries=marker`;
-    script.async = true;
-    script.onload = () => setMapLoaded(true);
-    document.head.appendChild(script);
-
-    return () => {
-      if (document.head.contains(script)) {
-        document.head.removeChild(script);
-      }
-    };
-  }, []);
-
-  // Initialize map with markers
-  useEffect(() => {
-    if (!mapLoaded || !pollutionData.length) return;
-
-    const mapElement = document.getElementById('pollution-map');
-    if (!mapElement) return;
-
-    const center = { lat: 20.5937, lng: 78.9629 }; // India center
-    const map = new (window as any).google.maps.Map(mapElement, {
-      zoom: 5,
-      center,
-      mapTypeControl: true,
-      fullscreenControl: true,
-    });
-
-    // Add markers for each city
-    pollutionData.forEach((data) => {
-      const color = getAQIColor(data.aqi);
-      const marker = new (window as any).google.maps.marker.AdvancedMarkerElement({
-        position: { lat: data.lat, lng: data.lng },
-        map,
-        title: data.city,
-        content: document.createElement('div'),
-      });
-
-      const markerDiv = document.createElement('div');
-      markerDiv.className = `${color} text-white font-bold text-sm w-8 h-8 rounded-full flex items-center justify-center cursor-pointer border-2 border-white shadow-lg`;
-      markerDiv.textContent = data.aqi.toString();
-      marker.content = markerDiv;
-
-      marker.addListener('click', () => {
-        onCitySelect?.(data);
-        const infoWindow = new (window as any).google.maps.InfoWindow({
-          content: `
-            <div class="text-sm p-2">
-              <h3 class="font-bold">${data.city}</h3>
-              <p>AQI: ${data.aqi} (${getAQICategory(data.aqi)})</p>
-              <p>PM2.5: ${data.pollutants.pm25} µg/m³</p>
-              <p>PM10: ${data.pollutants.pm10} µg/m³</p>
-            </div>
-          `,
-        });
-        infoWindow.open(map, marker);
-      });
-    });
-  }, [mapLoaded, pollutionData, onCitySelect]);
-
   return (
     <div className="w-full space-y-4">
       {/* Loading & Error States */}
@@ -176,12 +153,38 @@ export const AQIMap: React.FC<AQIMapProps> = ({
 
       {!loading && !error && (
         <>
-          {/* Map Container */}
-          <div
-            id="pollution-map"
-            className="w-full h-96 rounded-lg border border-cyan-500/30 overflow-hidden"
-            style={{ minHeight: '400px' }}
-          />
+          {/* Map Container with Leaflet */}
+          <div className="w-full rounded-lg border border-cyan-500/30 overflow-hidden" style={{ height: '400px' }}>
+            <MapContainer 
+              center={[20.5937, 78.9629]} 
+              zoom={5} 
+              style={{ height: '100%', width: '100%' }}
+            >
+              <TileLayer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              />
+              {pollutionData.map((data) => (
+                <Marker 
+                  key={data.city}
+                  position={[data.lat, data.lng]}
+                  icon={createAQIMarker(data.aqi)}
+                  eventHandlers={{
+                    click: () => onCitySelect?.(data)
+                  }}
+                >
+                  <Popup>
+                    <div className="text-sm p-2 bg-slate-800 text-white rounded">
+                      <h3 className="font-bold text-cyan-400">{data.city}</h3>
+                      <p className="mt-1">AQI: <span className="font-bold">{data.aqi}</span> ({getAQICategory(data.aqi)})</p>
+                      <p>PM2.5: {data.pollutants.pm25.toFixed(1)} µg/m³</p>
+                      <p>PM10: {data.pollutants.pm10.toFixed(1)} µg/m³</p>
+                    </div>
+                  </Popup>
+                </Marker>
+              ))}
+            </MapContainer>
+          </div>
 
           {/* Pollution Data Table */}
           <div className="bg-slate-800/50 border border-cyan-500/20 rounded-lg overflow-hidden">
@@ -204,7 +207,7 @@ export const AQIMap: React.FC<AQIMapProps> = ({
                       onClick={() => onCitySelect?.(data)}
                     >
                       <td className="px-4 py-2 text-white">{data.city}</td>
-                      <td className={`px-4 py-2 text-center font-bold text-white ${getAQIColor(data.aqi)}`}>
+                      <td className={`px-4 py-2 text-center font-bold text-white ${getAQIColorClass(data.aqi)}`}>
                         {data.aqi}
                       </td>
                       <td className="px-4 py-2 text-center text-gray-300">
