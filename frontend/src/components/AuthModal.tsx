@@ -13,7 +13,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [role, setRole] = useState<'citizen' | 'authority' | 'analyst'>('citizen');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [loading, setLoading] = useState(false);
@@ -28,7 +27,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
 
     try {
       if (isSignup) {
-        await signup(email, password, displayName, role, city, state);
+        await signup(email, password, displayName, 'citizen', city, state);
       } else {
         await login(email, password);
       }
@@ -82,19 +81,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                   placeholder="Your name"
                   required={isSignup}
                 />
-              </div>
-
-              <div>
-                <label className="block text-sm text-gray-300 mb-1">Role</label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as any)}
-                  className="w-full bg-slate-800 border border-cyan-500/30 rounded px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
-                >
-                  <option value="citizen">Citizen (Report & Monitor)</option>
-                  <option value="authority">Authority (Respond & Alert)</option>
-                  <option value="analyst">Analyst (Data & Insights)</option>
-                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

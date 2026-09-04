@@ -30,37 +30,19 @@ gcloud services enable cloudbuild.googleapis.com
 gcloud services enable artifactregistry.googleapis.com
 ```
 
-### Step 2: Create Dockerfile for Backend
+### Step 2: Build the Backend Container
 
-The backend needs a Dockerfile. Create `backend/Dockerfile`:
+The checked-in `backend/Dockerfile` is ready to use. Build from the repository root:
 
-```dockerfile
-FROM python:3.10-slim
-
-WORKDIR /app
-
-# Install dependencies
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application
-COPY backend/app ./app
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PORT=8000
-
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```bash
+cd backend
+docker build -t gcr.io/$PROJECT_ID/climate-api:latest .
 ```
 
 ### Step 3: Build and Push to Cloud Run
 
 ```bash
-cd backend
-
-# Build the container image
-gcloud builds submit --tag gcr.io/$PROJECT_ID/climate-api:latest
+gcloud builds submit --tag gcr.io/$PROJECT_ID/climate-api:latest ./backend
 
 # Deploy to Cloud Run
 gcloud run deploy climate-api \
@@ -84,7 +66,8 @@ gcloud run services update climate-api \
   --set-env-vars \
     GEMINI_API_KEY=your_key,\
     WAQI_API_TOKEN=your_token,\
-    ADMIN_ACCESS_TOKEN=your_secure_token
+    ADMIN_ACCESS_TOKEN=your_secure_token,\
+    CORS_ALLOW_ORIGINS=https://your-firebase-project.web.app
 ```
 
 ## Part 2: Frontend Deployment (Firebase Hosting)
@@ -104,10 +87,10 @@ firebase init hosting
 
 ### Step 2: Update Configuration
 
-Update `frontend/.env.production`:
+Update `frontend/.env.production` (the frontend reads `VITE_API_BASE_URL`):
 
 ```
-VITE_API_URL=https://climate-api-xxx.run.app  # Your Cloud Run URL
+VITE_API_BASE_URL=https://climate-api-xxx.run.app  # Your Cloud Run URL
 VITE_FIREBASE_API_KEY=your_firebase_api_key
 VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=your-project-id
@@ -116,6 +99,7 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
 VITE_FIREBASE_APP_ID=your_app_id
 VITE_GOOGLE_MAPS_API_KEY=your_google_maps_key
 VITE_WAQI_API_TOKEN=your_waqi_token
+VITE_CARTO_API_KEY=your_carto_basemap_key
 ```
 
 ### Step 3: Build and Deploy Frontend
