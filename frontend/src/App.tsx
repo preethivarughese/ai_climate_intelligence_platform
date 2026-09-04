@@ -80,6 +80,9 @@ export default function App() {
   const [regions, setRegions] = useState<any[]>([]);
   const [selectedRegion, setSelectedRegion] = useState<any>(null);
   const [selectedStation, setSelectedStation] = useState<any>(null);
+  const [corridors, setCorridors] = useState<any[]>([]);
+  const [corridorsLoading, setCorridorsLoading] = useState(false);
+  const [corridorsError, setCorridorsError] = useState<string | null>(null);
   const [telemetryModalData, setTelemetryModalData] = useState<any>(null);
   
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -111,6 +114,20 @@ export default function App() {
   useEffect(() => {
     loadDefaultRegions();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'corridors') return;
+    setCorridorsLoading(true);
+    setCorridorsError(null);
+    fetch(apiUrl('/api/corridors'))
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.detail || `Corridor request failed (HTTP ${res.status})`);
+        setCorridors(data);
+      })
+      .catch((error: any) => setCorridorsError(error?.message || 'Could not load corridor telemetry.'))
+      .finally(() => setCorridorsLoading(false));
+  }, [activeTab]);
 
   const loadDefaultRegions = async () => {
     try {
@@ -995,7 +1012,7 @@ export default function App() {
             <h2 className="text-2xl font-bold">{t.reportPollution || 'Report Pollution Event'}</h2>
           </div>
           {user && (
-            <CitizenReportForm language={lang} />
+            <CitizenReportForm language={lang} latitude={selectedRegion?.lat} longitude={selectedRegion?.lon} />
           )}
           {!user && (
             <div className={`p-6 rounded-xl border text-center ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-300'}`}>
@@ -1029,56 +1046,33 @@ export default function App() {
               </span>
             </div>
 
+            {corridorsLoading && <p className="text-sm text-slate-400">Loading live corridor telemetry...</p>}
+            {corridorsError && <p className="text-sm text-rose-400">{corridorsError}</p>}
             <div className="space-y-4">
-              {[
-                {
-                  name: "Delhi-Mumbai Industrial Corridor (DMIC)",
-                  route: "Delhi NCR → Jaipur → Ahmedabad → Mumbai",
-                  peakAqi: 218,
-                  status: "ELEVATED_WATCH",
-                  hazardPoint: "Ahmedabad Petrochemical Sector",
-                  action: "Mobilize Interstate Anti-Smog Freight Route Monitoring"
-                },
-                {
-                  name: "Bengaluru-Chennai Auto & Electronics Corridor",
-                  route: "Bengaluru → Hosur → Sriperumbudur → Chennai",
-                  peakAqi: 74,
-                  status: "NORMAL_FLOW",
-                  hazardPoint: "Hosur Component Belt (Moderate PM10)",
-                  action: "Continuous Green-Wave Freight Transit Active"
-                },
-                {
-                  name: "Punjab-Delhi Agricultural & Logistics Spine",
-                  route: "Ludhiana → Ambala → Panipat → Delhi NCR",
-                  peakAqi: 285,
-                  status: "CRITICAL_HAZARD",
-                  hazardPoint: "Panipat-Karnal Stubble Burning Cluster",
-                  action: "Issue Interstate Joint Flying Squad Rapid Intervention"
-                }
-              ].map((corr, idx) => (
-                <div key={idx} className={`p-5 rounded-2xl border transition-all ${isDark ? 'bg-[#080D1D] border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              {corridors.map((corr) => (
+                <div key={corr.corridor_id} className={`p-5 rounded-2xl border transition-all ${isDark ? 'bg-[#080D1D] border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                   <div className="flex flex-wrap justify-between items-start gap-2 mb-2">
                     <div>
                       <h3 className="font-bold text-base text-white">{corr.name}</h3>
-                      <p className="text-xs text-slate-400 font-mono mt-0.5">{corr.route}</p>
+                      <p className="text-xs text-slate-400 font-mono mt-0.5">{corr.nodes?.map((node: any) => node.city).join(' → ')}</p>
                     </div>
                     <span className={`text-xs px-3 py-1 rounded-full font-bold border ${
-                      corr.status === 'CRITICAL_HAZARD' 
+                      corr.overall_status === 'CRITICAL_HAZARD' 
                         ? 'bg-red-500/20 text-red-400 border-red-500/50 animate-pulse' 
                         : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50'
                     }`}>
-                      {corr.status.replace('_', ' ')} (Peak AQI: {corr.peakAqi})
+                      {corr.overall_status.replace('_', ' ')} (Peak AQI: {corr.peak_aqi})
                     </span>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 pt-3 border-t border-slate-800 text-xs">
                     <div>
                       <span className="text-slate-500 font-semibold block">{t.detectedHotspot}:</span>
-                      <span className="text-amber-400 font-medium">⚠️ {corr.hazardPoint}</span>
+                      <span className="text-amber-400 font-medium">⚠️ {corr.nodes?.find((node: any) => node.aqi === corr.peak_aqi)?.city || 'No peak location reported'} (AQI {corr.peak_aqi})</span>
                     </div>
                     <div>
                       <span className="text-slate-500 font-semibold block">{t.interstateAction}:</span>
-                      <span className="text-cyan-400 font-medium">🚨 {corr.action}</span>
+                      <span className="text-cyan-400 font-medium">🚨 {corr.critical_hotspot_found ? 'Coordinate rapid interstate inspection' : 'Continue live freight corridor monitoring'}</span>
                     </div>
                   </div>
                 </div>
@@ -1357,6 +1351,14 @@ export default function App() {
         <main className="max-w-7xl mx-auto p-4 space-y-6 relative z-[10]">
           <div className={`p-6 rounded-2xl border ${isDark ? 'bg-[#0E1731] border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
             <h2 className="text-lg font-bold mb-4">{t.dispatchOrderTitle}</h2>
+            <input
+              type="password"
+              value={adminToken}
+              onChange={(e) => setAdminToken(e.target.value)}
+              placeholder="Enter backend admin access token"
+              className={`w-full mb-4 px-3 py-2 rounded-lg border text-xs ${isDark ? 'bg-[#080D1D] border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
+              autoComplete="off"
+            />
             <div className={`p-4 rounded-xl border text-xs mb-4 ${isDark ? 'bg-[#080D1D] border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <p>{authorityRec?.summary || "Analyzing telemetry with Gemini..."}</p>
             </div>

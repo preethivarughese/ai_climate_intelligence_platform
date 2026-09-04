@@ -4,6 +4,9 @@ import { VoiceInput, TextToSpeech } from './VoiceAndLanguage';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../services/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { apiUrl } from '../api';
+import { storage } from '../services/firebase';
 
 interface PollutionReport {
   title: string;
@@ -15,6 +18,8 @@ interface PollutionReport {
 
 interface CitizenReportFormProps {
   language: 'en' | 'hi' | 'kn';
+  latitude?: number;
+  longitude?: number;
 }
 
 const getSeverityColor = (severity: string) => {
@@ -27,7 +32,7 @@ const getSeverityColor = (severity: string) => {
   }
 };
 
-export const CitizenReportForm: React.FC<CitizenReportFormProps> = ({ language }) => {
+export const CitizenReportForm: React.FC<CitizenReportFormProps> = ({ language, latitude, longitude }) => {
   const { user, userProfile } = useAuth();
   const [formData, setFormData] = useState<PollutionReport>({
     title: '',
@@ -127,6 +132,32 @@ export const CitizenReportForm: React.FC<CitizenReportFormProps> = ({ language }
     setError(null);
 
     try {
+      let imageAnalysis = null;
+      let imageUrl = null;
+      if (uploadedImage) {
+        const imageForm = new FormData();
+        imageForm.append('file', uploadedImage);
+        if (latitude !== undefined && longitude !== undefined) {
+          imageForm.append('lat', String(latitude));
+          imageForm.append('lon', String(longitude));
+        }
+        const analysisResponse = await fetch(apiUrl('/api/images/analyze'), {
+          method: 'POST',
+          body: imageForm,
+        });
+        imageAnalysis = await analysisResponse.json();
+        if (!analysisResponse.ok) {
+          throw new Error(imageAnalysis?.detail || 'Image analysis failed');
+        }
+
+        const safeFileName = uploadedImage.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const imageRef = ref(storage, `pollution-reports/${user.uid}/${Date.now()}-${safeFileName}`);
+        const uploadResult = await uploadBytes(imageRef, uploadedImage, {
+          contentType: uploadedImage.type,
+        });
+        imageUrl = await getDownloadURL(uploadResult.ref);
+      }
+
       const reportData = {
         ...formData,
         userId: user.uid,
@@ -134,7 +165,8 @@ export const CitizenReportForm: React.FC<CitizenReportFormProps> = ({ language }
         userCity: userProfile.city,
         userState: userProfile.state,
         timestamp: serverTimestamp(),
-        image: imagePreview || null,
+        image: imageUrl,
+        imageAnalysis,
       };
 
       await addDoc(collection(db, 'pollution_reports'), reportData);

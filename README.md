@@ -104,7 +104,7 @@ npm run dev
 - `AQIMap` - Interactive Google Maps visualization
 
 #### 3. **Real-Time Alerts & Dispatch** 🚨
-- WebSocket support for live updates
+- Live API refresh for regional and corridor telemetry
 - Authority command center
 - Multi-channel notification (Slack, email, webhook)
 - Federated alert sharing
