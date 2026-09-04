@@ -239,10 +239,10 @@ def fetch_live_city_data(city_name: str, lat: float, lon: float, state: str = "I
 
     # Geographic monitoring stations
     stations = [
-        {"station_id": f"{city_name.lower()}_st_1", "name": f"{city_name} Central CAAQMS", "lat": lat, "lon": lon, "aqi": aqi_val, "pm25": round(pm25, 1), "category": category, "type": "Continuous CAAQMS"},
-        {"station_id": f"{city_name.lower()}_st_2", "name": f"{city_name} North Industrial Corridor", "lat": lat + 0.045, "lon": lon + 0.035, "aqi": min(500, int(aqi_val * 1.35)), "pm25": round(pm25 * 1.35, 1), "category": "Poor" if aqi_val * 1.35 > 200 else category, "type": "Industrial Stack Area"},
-        {"station_id": f"{city_name.lower()}_st_3", "name": f"{city_name} Transit Outer Ring", "lat": lat - 0.040, "lon": lon + 0.045, "aqi": int(aqi_val * 1.15), "pm25": round(pm25 * 1.15, 1), "category": category, "type": "Highway Freight Corridor"},
-        {"station_id": f"{city_name.lower()}_st_4", "name": f"{city_name} Ecological Reserve", "lat": lat - 0.045, "lon": lon - 0.035, "aqi": max(20, int(aqi_val * 0.70)), "pm25": round(pm25 * 0.70, 1), "category": "Good", "type": "Background Baseline"}
+        {"station_id": f"{city_name.lower()}_st_1", "name": f"{city_name} Central CAAQMS", "lat": lat, "lon": lon, "aqi": aqi_val, "pm25": round(pm25, 1), "no2": _round_or_none(no2), "so2": _round_or_none(so2), "category": category, "type": "Continuous CAAQMS"},
+        {"station_id": f"{city_name.lower()}_st_2", "name": f"{city_name} North Industrial Corridor", "lat": lat + 0.045, "lon": lon + 0.035, "aqi": min(500, int(aqi_val * 1.35)), "pm25": round(pm25 * 1.35, 1), "no2": _round_or_none(no2), "so2": _round_or_none(so2), "category": "Poor" if aqi_val * 1.35 > 200 else category, "type": "Industrial Stack Area"},
+        {"station_id": f"{city_name.lower()}_st_3", "name": f"{city_name} Transit Outer Ring", "lat": lat - 0.040, "lon": lon + 0.045, "aqi": int(aqi_val * 1.15), "pm25": round(pm25 * 1.15, 1), "no2": _round_or_none(no2), "so2": _round_or_none(so2), "category": category, "type": "Highway Freight Corridor"},
+        {"station_id": f"{city_name.lower()}_st_4", "name": f"{city_name} Ecological Reserve", "lat": lat - 0.045, "lon": lon - 0.035, "aqi": max(20, int(aqi_val * 0.70)), "pm25": round(pm25 * 0.70, 1), "no2": _round_or_none(no2), "so2": _round_or_none(so2), "category": "Good", "type": "Background Baseline"}
     ]
 
     return {

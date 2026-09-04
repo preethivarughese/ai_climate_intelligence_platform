@@ -735,8 +735,8 @@ export default function App() {
                   <div className="flex flex-wrap items-center gap-6 text-sm">
                     <div><span className="text-slate-400">PM2.5: </span><span className="font-bold">{selectedRegion.current_pm25} µg/m³</span></div>
                     <div><span className="text-slate-400">PM10: </span><span className="font-bold">{selectedRegion.current_pm10} µg/m³</span></div>
-                    <div><span className="text-slate-400">NO2: </span><span className="font-bold">{selectedRegion.no2} µg/m³</span></div>
-                    <div><span className="text-slate-400">SO2: </span><span className="font-bold">{selectedRegion.so2} µg/m³</span></div>
+                    <div><span className="text-slate-400">NO2: </span><span className="font-bold">{selectedRegion.no2 ?? 'Unavailable'} µg/m³</span></div>
+                    <div><span className="text-slate-400">SO2: </span><span className="font-bold">{selectedRegion.so2 ?? 'Unavailable'} µg/m³</span></div>
                   </div>
 
                   <div className="space-y-2 pt-2">
@@ -953,8 +953,8 @@ export default function App() {
               <div className={`space-y-1.5 py-3 border-t border-b text-xs font-mono ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
                 <div className="flex justify-between"><span className="text-slate-400">PM2.5 ↗</span><span className="font-bold">{selectedStation?.pm25 || selectedRegion.current_pm25} µg/m³</span></div>
                 <div className="flex justify-between"><span className="text-slate-400">PM10 ↗</span><span className="font-bold">{selectedRegion.current_pm10} µg/m³</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">NO2 ↗</span><span className="font-bold">{selectedRegion.no2} ppb</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">SO2 ↗</span><span className="font-bold">{selectedRegion.so2} ppb</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">NO2 ↗</span><span className="font-bold">{selectedRegion.no2 ?? 'Unavailable'} µg/m³</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">SO2 ↗</span><span className="font-bold">{selectedRegion.so2 ?? 'Unavailable'} µg/m³</span></div>
               </div>
 
               <button 
@@ -993,13 +993,6 @@ export default function App() {
           <div className="flex items-center gap-3 mb-6">
             <AlertTriangle className="w-6 h-6 text-orange-400" />
             <h2 className="text-2xl font-bold">{t.reportPollution || 'Report Pollution Event'}</h2>
-            <button
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className="ml-auto p-2 rounded-lg hover:bg-slate-700 transition"
-              title="Toggle theme"
-            >
-              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
           </div>
           {user && (
             <CitizenReportForm language={lang} />
