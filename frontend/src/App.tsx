@@ -242,6 +242,36 @@ export default function App() {
     }
   };
 
+  const analyzePresetScenario = async (scenario: string) => {
+    setImageLoading(true);
+    setImageAnalysis(null);
+    try {
+      const form = new FormData();
+      form.append('preset_scenario', scenario);
+      if (selectedRegion) {
+        form.append('lat', String(selectedRegion.lat));
+        form.append('lon', String(selectedRegion.lon));
+      }
+      const res = await fetch(apiUrl('/api/images/analyze'), { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || `Scenario failed (HTTP ${res.status})`);
+      setImageAnalysis(data);
+    } catch (e: any) {
+      setImageAnalysis({
+        is_relevant: null,
+        event_type: 'unavailable',
+        visual_evidence: [],
+        severity: 'unknown',
+        confidence: 0,
+        analysis_status: 'REQUEST_FAILED',
+        analysis_error: e?.message || 'Scenario request failed.',
+        plain_description: e?.message || 'Scenario request failed.'
+      });
+    } finally {
+      setImageLoading(false);
+    }
+  };
+
   const fetchAuthorityOrders = async () => {
     if (!selectedRegion) return;
     try {
@@ -1120,6 +1150,21 @@ export default function App() {
                   <Upload className="w-10 h-10 text-cyan-400 mb-3 animate-bounce" />
                   <span className="text-sm font-bold text-cyan-400">{t.uploadBtn}</span>
                   <span className="text-xs text-slate-400 mt-1">{t.uploadHelper}</span>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Demo scenarios</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button type="button" onClick={() => analyzePresetScenario('biomass_burning')} className="px-3 py-2 rounded-xl border border-amber-700/60 bg-amber-950/30 text-amber-300 text-[11px] font-semibold hover:bg-amber-900/50 transition">
+                      {t.scenarios.biomass}
+                    </button>
+                    <button type="button" onClick={() => analyzePresetScenario('construction_dust')} className="px-3 py-2 rounded-xl border border-orange-700/60 bg-orange-950/30 text-orange-300 text-[11px] font-semibold hover:bg-orange-900/50 transition">
+                      {t.scenarios.dust}
+                    </button>
+                    <button type="button" onClick={() => analyzePresetScenario('industrial_smoke')} className="px-3 py-2 rounded-xl border border-slate-600 bg-slate-900 text-slate-300 text-[11px] font-semibold hover:bg-slate-800 transition">
+                      {t.scenarios.smoke}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Citizen low-cost sensor intake */}

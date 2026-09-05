@@ -8,6 +8,8 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { apiUrl } from '../api';
 import { storage } from '../services/firebase';
 
+const enableStorageUpload = import.meta.env.VITE_ENABLE_FIREBASE_STORAGE === 'true';
+
 interface PollutionReport {
   title: string;
   description: string;
@@ -150,12 +152,14 @@ export const CitizenReportForm: React.FC<CitizenReportFormProps> = ({ language, 
           throw new Error(imageAnalysis?.detail || 'Image analysis failed');
         }
 
-        const safeFileName = uploadedImage.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const imageRef = ref(storage, `pollution-reports/${user.uid}/${Date.now()}-${safeFileName}`);
-        const uploadResult = await uploadBytes(imageRef, uploadedImage, {
-          contentType: uploadedImage.type,
-        });
-        imageUrl = await getDownloadURL(uploadResult.ref);
+        if (enableStorageUpload) {
+          const safeFileName = uploadedImage.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const imageRef = ref(storage, `pollution-reports/${user.uid}/${Date.now()}-${safeFileName}`);
+          const uploadResult = await uploadBytes(imageRef, uploadedImage, {
+            contentType: uploadedImage.type,
+          });
+          imageUrl = await getDownloadURL(uploadResult.ref);
+        }
       }
 
       const reportData = {
@@ -166,6 +170,7 @@ export const CitizenReportForm: React.FC<CitizenReportFormProps> = ({ language, 
         userState: userProfile.state,
         timestamp: serverTimestamp(),
         image: imageUrl,
+        imageFileName: uploadedImage?.name || null,
         imageAnalysis,
       };
 
