@@ -1197,13 +1197,20 @@ export default function App() {
                 {/* Output shown ONLY after an image has been uploaded */}
                 {!imageLoading && imageAnalysis && (
                   <div className={`p-5 rounded-2xl border text-xs space-y-2.5 shadow-lg transition-all ${
-                    imageAnalysis.is_relevant 
-                      ? isDark ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-100' : 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                      : isDark ? 'bg-rose-950/30 border-rose-500/50 text-rose-100' : 'bg-rose-50 border-rose-300 text-rose-900'
+                    imageAnalysis.analysis_status !== 'OK'
+                      ? isDark ? 'bg-amber-950/30 border-amber-500/50 text-amber-100' : 'bg-amber-50 border-amber-300 text-amber-900'
+                      : imageAnalysis.is_relevant
+                        ? isDark ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-100' : 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                        : isDark ? 'bg-rose-950/30 border-rose-500/50 text-rose-100' : 'bg-rose-50 border-rose-300 text-rose-900'
                   }`}>
                     <div className="flex justify-between items-center font-bold">
                       <span className="flex items-center gap-2 text-xs uppercase tracking-wide">
-                        {imageAnalysis.is_relevant ? (
+                        {imageAnalysis.analysis_status !== 'OK' ? (
+                          <>
+                            <AlertTriangle className="w-5 h-5 text-amber-400" />
+                            ANALYSIS UNAVAILABLE
+                          </>
+                        ) : imageAnalysis.is_relevant ? (
                           <>
                             <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                             {t.validBadge}
@@ -1216,14 +1223,16 @@ export default function App() {
                         )}
                       </span>
                       <span className="font-mono text-[11px] px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-white">
-                        {t.confidence}: {imageAnalysis.is_relevant ? `${(imageAnalysis.confidence * 100).toFixed(0)}%` : '0% (Null)'}
+                        {t.confidence}: {imageAnalysis.analysis_status !== 'OK' ? 'N/A' : `${(imageAnalysis.confidence * 100).toFixed(0)}%`}
                       </span>
                     </div>
 
                     <p className="leading-relaxed font-sans text-xs">
-                      {imageAnalysis.is_relevant
-                        ? imageAnalysis.plain_description
-                        : imageAnalysis.analysis_error || t.rejectedNotice}
+                      {imageAnalysis.analysis_status !== 'OK'
+                        ? imageAnalysis.analysis_error || 'Vision analysis is temporarily unavailable. Please retry.'
+                        : imageAnalysis.is_relevant
+                          ? imageAnalysis.plain_description
+                          : t.rejectedNotice}
                     </p>
 
                     {imageAnalysis.analysis_error && (
