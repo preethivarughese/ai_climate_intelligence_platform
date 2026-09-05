@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "AI Climate Intelligence Platform (India)"
     API_V1_STR: str = "/api"
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
     WAQI_API_TOKEN: str = os.getenv("WAQI_API_TOKEN", "")
     SENTINEL_HUB_CLIENT_ID: str = os.getenv("SENTINEL_HUB_CLIENT_ID", "")
     SENTINEL_HUB_CLIENT_SECRET: str = os.getenv("SENTINEL_HUB_CLIENT_SECRET", "")
