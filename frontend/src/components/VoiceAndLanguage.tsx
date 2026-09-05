@@ -16,6 +16,7 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
+  const transcriptRef = useRef('');
 
   const startListening = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -48,7 +49,9 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcriptSegment = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          setTranscript((prev) => prev + transcriptSegment + ' ');
+          const nextTranscript = `${transcriptRef.current}${transcriptSegment} `;
+          transcriptRef.current = nextTranscript;
+          setTranscript(nextTranscript);
         } else {
           interim += transcriptSegment;
         }
@@ -64,8 +67,9 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
 
     recognitionRef.current.onend = () => {
       setIsListening(false);
-      if (transcript) {
-        onTranscript(transcript.trim());
+      const finalTranscript = transcriptRef.current.trim();
+      if (finalTranscript) {
+        onTranscript(finalTranscript);
       }
     };
 
@@ -80,6 +84,7 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
 
   const handleClear = () => {
     setTranscript('');
+    transcriptRef.current = '';
     setError(null);
   };
 
@@ -87,6 +92,7 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
     <div className="space-y-2">
       <div className="flex gap-2">
         <button
+          type="button"
           onClick={isListening ? stopListening : startListening}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition ${
             isListening
@@ -99,6 +105,7 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
         </button>
         {transcript && (
           <button
+            type="button"
             onClick={handleClear}
             className="px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
           >

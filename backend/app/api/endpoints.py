@@ -384,12 +384,16 @@ IMAGE_REJECTION = {
 }
 
 def _image_error(analysis_status: str, message: str) -> dict:
-    """Rejection payload annotated so the frontend can distinguish failures from a genuine 'not relevant' verdict."""
+    """Return a neutral payload for unavailable or malformed vision analysis."""
     return {
-        **IMAGE_REJECTION,
+        "is_relevant": None,
+        "event_type": "unavailable",
+        "visual_evidence": [],
+        "severity": "unknown",
+        "confidence": 0.0,
+        "plain_description": message,
         "analysis_status": analysis_status,
         "analysis_error": message,
-        "plain_description": message
     }
 
 @router.post("/images/analyze")
@@ -421,7 +425,7 @@ async def analyze_image_with_gemini(
         try:
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
             prompt = """You are an Environmental Forensics and Optical Smoke Inspection AI.
-Analyze this citizen-uploaded photo for outdoor air quality hazards and environmental combustion events.
+Analyze this citizen-uploaded photo for outdoor air quality hazards and environmental emission events.
 
 STRICT VERIFICATION GUIDELINES:
 1. REJECT (is_relevant: false) if the photo depicts:
@@ -435,14 +439,15 @@ STRICT VERIFICATION GUIDELINES:
      "confidence": 0.05,
      "plain_description": "Rejection Notice: No valid environmental pollution or combustion plume detected in this image."
 
-2. ACCEPT (is_relevant: true) ONLY IF there is clear, visible evidence of:
-   - Crop residue/stubble burning, open waste fires, dense industrial chimney exhaust, diesel exhaust saturation, or heavy excavation dust.
+2. ACCEPT (is_relevant: true) when there is credible visible evidence of an outdoor pollution event, including:
+     - Crop residue/stubble burning, open waste fires, dense industrial chimney exhaust, diesel exhaust saturation, heavy excavation dust, or dense traffic-related haze/smog.
+     - For traffic scenes, accept only when multiple vehicles visibly contribute exhaust, the air is visibly hazy/smoky, or roadway visibility is materially reduced. Do not claim that ordinary traffic alone proves pollution.
    - Return:
      "is_relevant": true,
-     "event_type": "biomass_burning" | "construction_dust" | "industrial_smoke" | "open_waste_burning" | "vehicle_emission",
+         "event_type": "biomass_burning" | "construction_dust" | "industrial_smoke" | "open_waste_burning" | "vehicle_emission" | "traffic_haze",
      "visual_evidence": [2-3 concise descriptors],
-     "severity": "moderate" | "high" | "severe",
-     "confidence": float between 0.75 and 0.98,
+         "severity": "low" | "moderate" | "high" | "severe",
+         "confidence": float between 0.55 and 0.98,
      "plain_description": "A concise explanation of the emission source observed."
 
 Return ONLY valid JSON matching this schema:
@@ -487,7 +492,7 @@ Return ONLY valid JSON matching this schema:
         parsed["analysis_status"] = "OK"
         parsed["model_used"] = settings.GEMINI_MODEL
 
-        if lat is not None and lon is not None:
+        if lat is not None and lon is not None and parsed.get("analysis_status") == "OK":
             # Geotagged verdicts become evidence the fusion engine can pick up for that area.
             store.save_image_report({
                 "lat": lat,
