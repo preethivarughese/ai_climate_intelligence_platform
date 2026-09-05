@@ -245,31 +245,40 @@ export default function App() {
   const analyzePresetScenario = async (scenario: string) => {
     setImageLoading(true);
     setImageAnalysis(null);
-    try {
-      const form = new FormData();
-      form.append('preset_scenario', scenario);
-      if (selectedRegion) {
-        form.append('lat', String(selectedRegion.lat));
-        form.append('lon', String(selectedRegion.lon));
+    const scenarios: Record<string, any> = {
+      biomass_burning: {
+        is_relevant: true,
+        event_type: 'biomass_burning',
+        visual_evidence: ['Crop stubble fire', 'Thick low-altitude smoke plume'],
+        severity: 'severe',
+        confidence: 0.94,
+        analysis_status: 'DEMO_SCENARIO',
+        model_used: 'Deterministic demo scenario',
+        plain_description: 'Active agricultural burning observed releasing heavy particulate smoke into nearby areas.'
+      },
+      construction_dust: {
+        is_relevant: true,
+        event_type: 'construction_dust',
+        visual_evidence: ['Unsprayed excavation', 'Suspended fine mineral dust'],
+        severity: 'high',
+        confidence: 0.89,
+        analysis_status: 'DEMO_SCENARIO',
+        model_used: 'Deterministic demo scenario',
+        plain_description: 'Active construction excavation generating particulate dust plumes without water misting.'
+      },
+      industrial_smoke: {
+        is_relevant: true,
+        event_type: 'industrial_smoke',
+        visual_evidence: ['Continuous industrial smokestack release'],
+        severity: 'high',
+        confidence: 0.91,
+        analysis_status: 'DEMO_SCENARIO',
+        model_used: 'Deterministic demo scenario',
+        plain_description: 'Industrial smokestack emitting dense particulate matter.'
       }
-      const res = await fetch(apiUrl('/api/images/analyze'), { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || `Scenario failed (HTTP ${res.status})`);
-      setImageAnalysis(data);
-    } catch (e: any) {
-      setImageAnalysis({
-        is_relevant: null,
-        event_type: 'unavailable',
-        visual_evidence: [],
-        severity: 'unknown',
-        confidence: 0,
-        analysis_status: 'REQUEST_FAILED',
-        analysis_error: e?.message || 'Scenario request failed.',
-        plain_description: e?.message || 'Scenario request failed.'
-      });
-    } finally {
-      setImageLoading(false);
-    }
+    };
+    setImageAnalysis(scenarios[scenario]);
+    setImageLoading(false);
   };
 
   const fetchAuthorityOrders = async () => {
@@ -1242,7 +1251,7 @@ export default function App() {
                 {/* Output shown ONLY after an image has been uploaded */}
                 {!imageLoading && imageAnalysis && (
                   <div className={`p-5 rounded-2xl border text-xs space-y-2.5 shadow-lg transition-all ${
-                    imageAnalysis.analysis_status !== 'OK'
+                    imageAnalysis.analysis_status !== 'OK' && imageAnalysis.analysis_status !== 'DEMO_SCENARIO'
                       ? isDark ? 'bg-amber-950/30 border-amber-500/50 text-amber-100' : 'bg-amber-50 border-amber-300 text-amber-900'
                       : imageAnalysis.is_relevant
                         ? isDark ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-100' : 'bg-emerald-50 border-emerald-300 text-emerald-900'
@@ -1250,7 +1259,7 @@ export default function App() {
                   }`}>
                     <div className="flex justify-between items-center font-bold">
                       <span className="flex items-center gap-2 text-xs uppercase tracking-wide">
-                        {imageAnalysis.analysis_status !== 'OK' ? (
+                        {imageAnalysis.analysis_status !== 'OK' && imageAnalysis.analysis_status !== 'DEMO_SCENARIO' ? (
                           <>
                             <AlertTriangle className="w-5 h-5 text-amber-400" />
                             ANALYSIS UNAVAILABLE
@@ -1268,12 +1277,12 @@ export default function App() {
                         )}
                       </span>
                       <span className="font-mono text-[11px] px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-white">
-                        {t.confidence}: {imageAnalysis.analysis_status !== 'OK' ? 'N/A' : `${(imageAnalysis.confidence * 100).toFixed(0)}%`}
+                        {t.confidence}: {imageAnalysis.analysis_status !== 'OK' && imageAnalysis.analysis_status !== 'DEMO_SCENARIO' ? 'N/A' : `${(imageAnalysis.confidence * 100).toFixed(0)}%`}
                       </span>
                     </div>
 
                     <p className="leading-relaxed font-sans text-xs">
-                      {imageAnalysis.analysis_status !== 'OK'
+                      {imageAnalysis.analysis_status !== 'OK' && imageAnalysis.analysis_status !== 'DEMO_SCENARIO'
                         ? imageAnalysis.analysis_error || 'Vision analysis is temporarily unavailable. Please retry.'
                         : imageAnalysis.is_relevant
                           ? imageAnalysis.plain_description
